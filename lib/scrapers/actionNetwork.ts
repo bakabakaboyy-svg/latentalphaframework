@@ -1,4 +1,4 @@
-import type { GameOdds, OddsLine, BookSlug, MarketType } from "@/types/odds";
+import type { GameOdds, OddsLine, BookSlug, MarketType, SportSlug } from "@/types/odds";
 
 // Action Network is a Next.js site — instead of parsing rendered HTML, we pull
 // the JSON it embeds in a <script id="__NEXT_DATA__"> tag on every page. This
@@ -7,9 +7,23 @@ import type { GameOdds, OddsLine, BookSlug, MarketType } from "@/types/odds";
 //
 // NOTE: this is an undocumented, unofficial data shape. Action Network can
 // change it at any time without notice — if this scraper starts returning
-// zero games, check ACTION_NETWORK_URL in a browser and re-inspect the
-// __NEXT_DATA__ payload (search for "scoreboardResponse").
-const ACTION_NETWORK_URL = "https://www.actionnetwork.com/mlb/odds";
+// zero games for a sport, open that sport's odds URL in a browser and
+// re-inspect the __NEXT_DATA__ payload (search for "scoreboardResponse").
+
+// Sports whose Action Network odds page uses the flat `games[]` shape this
+// scraper understands. Tennis (ATP/WTA) is NOT here: its page nests matches
+// under `competitions[]` instead of a flat `games[]` array, a genuinely
+// different shape this scraper doesn't parse yet. CS2 isn't here because
+// Action Network has no esports coverage at all — no nav entry, no odds page,
+// nothing to scrape. Both would need a different data source, not just a
+// tweak to this file.
+const SPORT_PATHS: Partial<Record<SportSlug, string>> = {
+  mlb: "mlb/odds",
+  wnba: "wnba/odds",
+  soccer: "soccer/odds",
+};
+
+export const SUPPORTED_SPORTS = Object.keys(SPORT_PATHS) as SportSlug[];
 
 // Action Network's `parent_name` per book, lowercased, mapped to our slugs.
 // Pinnacle and Circa are sharp books used for opening-line tracking (Phase 2)
@@ -34,7 +48,7 @@ interface ActionNetworkTeam {
 interface ActionNetworkOutcome {
   book_id: number;
   type: string; // 'moneyline' | 'spread' | 'total' | ...(prop types we ignore)
-  side: string; // 'home' | 'away' | 'over' | 'under'
+  side: string; // 'home' | 'away' | 'draw' | 'over' | 'under'
   team_id?: number;
   odds: number;
   value: number;
@@ -111,7 +125,11 @@ function outcomesToLines(
     let outcomeName: string;
     let point: number | null = null;
 
-    if (marketType === "totals") {
+    if (outcome.side === "draw") {
+      // 3-way soccer moneyline — draw has no team_id, so it needs its own case
+      // rather than falling through to the home/away team-name logic below.
+      outcomeName = "Draw";
+    } else if (marketType === "totals") {
       outcomeName = outcome.side === "over" ? "Over" : "Under";
       point = outcome.value;
     } else {
@@ -134,14 +152,22 @@ function outcomesToLines(
   return lines;
 }
 
-// Fetches live MLB odds from Action Network and normalizes them into our
-// GameOdds shape. Covers moneyline (h2h), spread, and total markets for
-// FanDuel, DraftKings, and BetMGM (whichever books Action Network is showing
-// for the requesting IP's region — typically NJ).
-export async function scrapeActionNetworkMLB(): Promise<GameOdds[]> {
-  console.log("[actionNetwork] Fetching", ACTION_NETWORK_URL);
+// Fetches live odds for one sport from Action Network and normalizes them
+// into our GameOdds shape. Covers moneyline (h2h), spread, and total markets
+// for whichever of FanDuel/DraftKings/BetMGM/Kalshi Action Network is showing
+// for the requesting IP's region (typically NJ).
+export async function scrapeActionNetworkSport(sportSlug: SportSlug): Promise<GameOdds[]> {
+  const path = SPORT_PATHS[sportSlug];
+  if (!path) {
+    throw new Error(
+      `scrapeActionNetworkSport: "${sportSlug}" is not supported (only ${SUPPORTED_SPORTS.join(", ")} are).`
+    );
+  }
+  const url = `https://www.actionnetwork.com/${path}`;
 
-  const response = await fetch(ACTION_NETWORK_URL, {
+  console.log(`[actionNetwork:${sportSlug}] Fetching`, url);
+
+  const response = await fetch(url, {
     headers: {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
@@ -152,11 +178,11 @@ export async function scrapeActionNetworkMLB(): Promise<GameOdds[]> {
 
   if (!response.ok) {
     throw new Error(
-      `[actionNetwork] Fetch failed: ${response.status} ${response.statusText}`
+      `[actionNetwork:${sportSlug}] Fetch failed: ${response.status} ${response.statusText}`
     );
   }
 
-  console.log("[actionNetwork] Page fetched, extracting embedded JSON...");
+  console.log(`[actionNetwork:${sportSlug}] Page fetched, extracting embedded JSON...`);
   const html = await response.text();
   const nextData = extractNextData(html);
 
@@ -165,13 +191,13 @@ export async function scrapeActionNetworkMLB(): Promise<GameOdds[]> {
   const allBooks: Record<string, ActionNetworkBook> = pageProps?.allBooks ?? {};
 
   if (games.length === 0) {
-    console.log("[actionNetwork] No games found in response.");
+    console.log(`[actionNetwork:${sportSlug}] No games found in response.`);
     return [];
   }
 
   const bookSlugMap = buildBookSlugMap(allBooks);
   console.log(
-    `[actionNetwork] Found ${games.length} games, ${bookSlugMap.size} recognized books.`
+    `[actionNetwork:${sportSlug}] Found ${games.length} games, ${bookSlugMap.size} recognized books.`
   );
 
   const results: GameOdds[] = [];
@@ -181,7 +207,7 @@ export async function scrapeActionNetworkMLB(): Promise<GameOdds[]> {
     const awayTeam = game.teams.find((t) => t.id === game.away_team_id);
 
     if (!homeTeam || !awayTeam) {
-      console.log(`[actionNetwork] Skipping game ${game.id} — missing team data.`);
+      console.log(`[actionNetwork:${sportSlug}] Skipping game ${game.id} — missing team data.`);
       continue;
     }
 
@@ -216,8 +242,8 @@ export async function scrapeActionNetworkMLB(): Promise<GameOdds[]> {
     }
 
     results.push({
-      externalId: `an-mlb-${game.id}`,
-      sportSlug: "mlb",
+      externalId: `an-${sportSlug}-${game.id}`,
+      sportSlug,
       homeTeam: homeTeam.full_name,
       awayTeam: awayTeam.full_name,
       commenceTime: game.start_time,
@@ -226,12 +252,12 @@ export async function scrapeActionNetworkMLB(): Promise<GameOdds[]> {
     });
 
     console.log(
-      `[actionNetwork] ${awayTeam.full_name} @ ${homeTeam.full_name}: ${lines.length} lines across ${new Set(
+      `[actionNetwork:${sportSlug}] ${awayTeam.full_name} @ ${homeTeam.full_name}: ${lines.length} lines across ${new Set(
         lines.map((l) => l.bookSlug)
       ).size} books.`
     );
   }
 
-  console.log(`[actionNetwork] Done. ${results.length} games parsed.`);
+  console.log(`[actionNetwork:${sportSlug}] Done. ${results.length} games parsed.`);
   return results;
 }

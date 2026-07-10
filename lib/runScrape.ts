@@ -1,6 +1,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { scrapeActionNetworkMLB } from "@/lib/scrapers/actionNetwork";
-import type { ScrapeResult } from "@/types/odds";
+import { scrapeActionNetworkSport, SUPPORTED_SPORTS } from "@/lib/scrapers/actionNetwork";
+import type { GameOdds, ScrapeResult } from "@/types/odds";
 
 // Scrapes Action Network, upserts games, records one immutable odds_snapshots
 // row per line, and locks in opening_lines the first time we see a given
@@ -34,8 +34,19 @@ export async function runScrape(): Promise<ScrapeResult> {
     const bookIdBySlug = new Map((books ?? []).map((b) => [b.slug, b.id]));
     const sportIdBySlug = new Map((sports ?? []).map((s) => [s.slug, s.id]));
 
-    console.log("[scrape] Running Action Network scraper...");
-    const games = await scrapeActionNetworkMLB();
+    console.log(`[scrape] Running Action Network scraper for ${SUPPORTED_SPORTS.join(", ")}...`);
+    const games: GameOdds[] = [];
+    for (const sportSlug of SUPPORTED_SPORTS) {
+      try {
+        const sportGames = await scrapeActionNetworkSport(sportSlug);
+        games.push(...sportGames);
+      } catch (err) {
+        // One sport's page erroring (e.g. Action Network hiccup) shouldn't
+        // block the others from being scraped and saved.
+        const message = err instanceof Error ? err.message : String(err);
+        result.errors.push(`[${sportSlug}] ${message}`);
+      }
+    }
     result.gamesFound = games.length;
 
     if (games.length === 0) {
