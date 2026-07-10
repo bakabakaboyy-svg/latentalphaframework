@@ -33,7 +33,8 @@ export async function GET(request: NextRequest) {
         .single();
 
       if (sportError || !sport) {
-        return NextResponse.json({ rows: [], error: `Unknown sport: ${sportSlug}` }, { status: 400 });
+        const detail = sportError ? sportError.message : `no row for slug "${sportSlug}"`;
+        return NextResponse.json({ rows: [], error: `Unknown sport: ${sportSlug} (${detail})` }, { status: 400 });
       }
       gamesQuery = gamesQuery.eq("sport_id", sport.id);
     }
