@@ -7,7 +7,7 @@ export function SkeletonRow() {
 export function SkeletonTable() {
   return (
     <div className="flex flex-col gap-3">
-      {[0, 1, 2, 3].map((i) => (
+      {Array.from({ length: 7 }, (_, i) => (
         <SkeletonRow key={i} />
       ))}
     </div>

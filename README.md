@@ -16,12 +16,24 @@ surfaces arbitrage opportunities across sportsbooks and prediction markets.
 
 ```
 app/                Pages and API routes (App Router)
-  api/scrape/        POST — runs the Action Network scraper, writes to Supabase
+  api/scrape/        POST — cron-secret-protected, runs the scraper, writes to Supabase
+  api/scrape/manual/ POST — same scrape, no secret needed (dashboard Refresh button, local curl)
   api/odds/          GET  — returns latest odds per game/book/market
 components/         Reusable UI components
-lib/                Supabase client, scrapers, schema.sql
+lib/                Supabase client, scrapers, shared scrape logic, schema.sql
 types/              Shared TypeScript types
 public/             PWA manifest, service worker, icons
+```
+
+## Data Flow
+
+```
+Action Network (live page)
+  -> lib/scrapers/actionNetwork.ts   (reads the embedded __NEXT_DATA__ JSON)
+  -> lib/runScrape.ts                (upserts games, records odds_snapshots + opening_lines)
+  -> Supabase (Postgres)
+  -> app/api/odds/route.ts           (GET, dedupes to latest snapshot per line)
+  -> components/LinesTab.tsx         (fetches on load; REFRESH button re-scrapes then re-fetches)
 ```
 
 ## Setup
@@ -65,15 +77,32 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ### 5. Test the scraper
 
-With the dev server running, trigger a manual scrape:
+Easiest way: open [http://localhost:3000](http://localhost:3000) and click **REFRESH** on
+the LINES tab. That calls `POST /api/scrape/manual`, which needs no secret while running
+locally, pulls live odds from Action Network, writes them to Supabase, then the dashboard
+re-fetches automatically.
+
+You can also trigger it directly from a terminal:
+
+```bash
+curl -X POST http://localhost:3000/api/scrape/manual
+```
+
+Or exercise the cron-secret-protected route the same way Railway eventually will:
 
 ```bash
 curl -X POST http://localhost:3000/api/scrape -H "x-cron-secret: <your CRON_SECRET>"
 ```
 
-You should see console logs in the terminal running `npm run dev` showing games being
-fetched from Action Network and written to Supabase. Refresh the dashboard's LINES tab
-(or click Refresh) to see the data appear.
+You should see `[actionNetwork]` and `[scrape]` console logs in the terminal running
+`npm run dev` showing games being fetched and written to Supabase.
+
+> **Note:** `/api/scrape/manual` skips the secret check only when `NODE_ENV !== "production"`.
+> Once deployed, it instead requires the request to come from the dashboard itself
+> (checked via the `Sec-Fetch-Site` header) — see the comment in
+> [`app/api/scrape/manual/route.ts`](app/api/scrape/manual/route.ts) for why: it's a public
+> POST endpoint that scrapes an external site and writes to your database, so it shouldn't
+> be left completely open once the app has a real public URL.
 
 ## Deployment
 
@@ -81,6 +110,27 @@ fetched from Action Network and written to Supabase. Refresh the dashboard's LIN
   Project Settings → Environment Variables, deploy.
 - **Railway**: cron job that calls `POST https://<your-vercel-domain>/api/scrape`
   with header `x-cron-secret: <CRON_SECRET>` every minute — set up in a later session.
+
+## Troubleshooting
+
+- **"No data yet" on the LINES tab** — click REFRESH. If it stays empty, check that
+  `/api/scrape/manual` (or `/api/scrape`) returned `"success": true` — read the JSON
+  response or the terminal logs for the specific error.
+- **Errors mentioning Supabase / "not set"** — check `.env.local` has real values (not
+  placeholders) for `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, and
+  `SUPABASE_SERVICE_KEY`, and that you restarted `npm run dev` after editing it (env vars
+  only load on startup). `NEXT_PUBLIC_SUPABASE_URL` must be the **API URL**
+  (`https://<project-ref>.supabase.co`), not the dashboard URL.
+- **A sport filter (WNBA/Tennis/Soccer/CS2) always shows no data** — expected for now;
+  the scraper currently only covers MLB. Other sports need their own scraper functions
+  in a future session.
+- **Deployed on Vercel but still errors** — Vercel's environment variables are separate
+  from your local `.env.local`; both need to be filled in independently, and Vercel needs
+  a redeploy after you change them (Deployments tab → Redeploy).
+
+## Screenshot
+
+_Dashboard screenshot goes here._
 
 ## Roadmap
 

@@ -50,15 +50,8 @@ export interface ScrapeResult {
   scrapedAt: string;
 }
 
-// Row shape returned by GET /api/odds — one row per book per outcome, latest snapshot only
-export interface OddsApiRow {
-  gameId: number;
-  externalId: string;
-  sportSlug: string;
-  homeTeam: string;
-  awayTeam: string;
-  commenceTime: string;
-  status: string;
+// One priced outcome within a GET /api/odds game entry — latest snapshot only
+export interface OddsLineApi {
   bookSlug: string;
   bookName: string;
   isSharp: boolean;
@@ -67,4 +60,23 @@ export interface OddsApiRow {
   price: number;
   point: number | null;
   recordedAt: string;
+}
+
+// A game with all of its current odds lines attached — one element of GET /api/odds's `games` array
+export interface GameWithOdds {
+  id: number;
+  externalId: string;
+  sportSlug: string;
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime: string;
+  status: GameStatus;
+  odds: OddsLineApi[];
+}
+
+// GET /api/odds response body
+export interface OddsResponse {
+  games: GameWithOdds[];
+  lastUpdated: string | null;
+  error?: string;
 }

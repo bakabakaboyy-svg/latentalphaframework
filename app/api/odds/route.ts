@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import type { OddsApiRow } from "@/types/odds";
+import type { GameWithOdds, OddsLineApi, OddsResponse } from "@/types/odds";
 
 // GET /api/odds?sport=mlb&market_type=h2h&book=fanduel
-// Returns the most recent odds_snapshots row per (game, book, market, outcome).
+// Returns every matching game with its most recent odds line per
+// (book, market, outcome) nested underneath it, plus the most recent
+// recorded_at across the whole result as `lastUpdated`.
 //
 // We fetch a generous, recency-ordered batch of snapshots and de-duplicate in
 // JS rather than writing a Postgres view — simplest thing that works at
@@ -16,8 +18,6 @@ export async function GET(request: NextRequest) {
     const sportSlug = searchParams.get("sport");
     const marketType = searchParams.get("market_type");
     const bookSlug = searchParams.get("book");
-
-    let gameIds: number[] | null = null;
 
     // Resolve sport filter -> list of game ids
     let gamesQuery = supabase
@@ -34,7 +34,10 @@ export async function GET(request: NextRequest) {
 
       if (sportError || !sport) {
         const detail = sportError ? sportError.message : `no row for slug "${sportSlug}"`;
-        return NextResponse.json({ rows: [], error: `Unknown sport: ${sportSlug} (${detail})` }, { status: 400 });
+        return NextResponse.json(
+          { games: [], lastUpdated: null, error: `Unknown sport: ${sportSlug} (${detail})` } satisfies OddsResponse,
+          { status: 400 }
+        );
       }
       gamesQuery = gamesQuery.eq("sport_id", sport.id);
     }
@@ -43,11 +46,10 @@ export async function GET(request: NextRequest) {
     if (gamesError) throw new Error(`Failed to load games: ${gamesError.message}`);
 
     if (!games || games.length === 0) {
-      return NextResponse.json({ rows: [] satisfies OddsApiRow[] });
+      return NextResponse.json({ games: [], lastUpdated: null } satisfies OddsResponse);
     }
 
-    gameIds = games.map((g) => g.id);
-    const gameById = new Map(games.map((g) => [g.id, g]));
+    const gameIds = games.map((g) => g.id);
 
     // Resolve book filter -> book id
     let bookId: number | null = null;
@@ -59,7 +61,10 @@ export async function GET(request: NextRequest) {
         .single();
 
       if (bookError || !book) {
-        return NextResponse.json({ rows: [], error: `Unknown book: ${bookSlug}` }, { status: 400 });
+        return NextResponse.json(
+          { games: [], lastUpdated: null, error: `Unknown book: ${bookSlug}` } satisfies OddsResponse,
+          { status: 400 }
+        );
       }
       bookId = book.id;
     }
@@ -77,43 +82,56 @@ export async function GET(request: NextRequest) {
     const { data: snapshots, error: snapshotsError } = await snapshotsQuery;
     if (snapshotsError) throw new Error(`Failed to load odds_snapshots: ${snapshotsError.message}`);
 
+    // De-dupe to the most recent snapshot per (game, book, market, outcome),
+    // grouping lines onto their game as we go.
     const seen = new Set<string>();
-    const rows: OddsApiRow[] = [];
+    const oddsByGameId = new Map<number, OddsLineApi[]>();
+    let lastUpdated: string | null = null;
 
     for (const snap of snapshots ?? []) {
       const key = `${snap.game_id}|${snap.book_id}|${snap.market_type}|${snap.outcome_name}`;
       if (seen.has(key)) continue; // already have a more recent snapshot for this combo
       seen.add(key);
 
-      const game = gameById.get(snap.game_id);
       const book = snap.books as unknown as { slug: string; name: string; is_sharp: boolean } | null;
-      if (!game || !book) continue;
+      if (!book) continue;
 
+      if (!lastUpdated || snap.recorded_at > lastUpdated) lastUpdated = snap.recorded_at;
+
+      const line: OddsLineApi = {
+        bookSlug: book.slug,
+        bookName: book.name,
+        isSharp: book.is_sharp,
+        marketType: snap.market_type as OddsLineApi["marketType"],
+        outcomeName: snap.outcome_name,
+        price: Number(snap.price),
+        point: snap.point === null ? null : Number(snap.point),
+        recordedAt: snap.recorded_at,
+      };
+
+      const existing = oddsByGameId.get(snap.game_id);
+      if (existing) existing.push(line);
+      else oddsByGameId.set(snap.game_id, [line]);
+    }
+
+    const gamesWithOdds: GameWithOdds[] = games.map((game) => {
       const sport = game.sports as unknown as { slug: string } | null;
-
-      rows.push({
-        gameId: game.id,
+      return {
+        id: game.id,
         externalId: game.external_id,
         sportSlug: sport?.slug ?? "",
         homeTeam: game.home_team,
         awayTeam: game.away_team,
         commenceTime: game.commence_time,
         status: game.status,
-        bookSlug: book.slug,
-        bookName: book.name,
-        isSharp: book.is_sharp,
-        marketType: snap.market_type as OddsApiRow["marketType"],
-        outcomeName: snap.outcome_name,
-        price: Number(snap.price),
-        point: snap.point === null ? null : Number(snap.point),
-        recordedAt: snap.recorded_at,
-      });
-    }
+        odds: oddsByGameId.get(game.id) ?? [],
+      };
+    });
 
-    return NextResponse.json({ rows });
+    return NextResponse.json({ games: gamesWithOdds, lastUpdated } satisfies OddsResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error("[odds] Failed:", message);
-    return NextResponse.json({ rows: [], error: message }, { status: 500 });
+    return NextResponse.json({ games: [], lastUpdated: null, error: message } satisfies OddsResponse, { status: 500 });
   }
 }

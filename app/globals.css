@@ -46,3 +46,18 @@ body {
   background-color: var(--surface);
   border: 1px solid var(--border);
 }
+
+@keyframes fade-in-row {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-row {
+  animation: fade-in-row 0.25s ease-out both;
+}
