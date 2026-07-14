@@ -8,6 +8,7 @@ surfaces arbitrage opportunities across sportsbooks and prediction markets.
 
 - **Next.js** (App Router) + TypeScript + Tailwind CSS — frontend & API routes
 - **Supabase** (Postgres) — database
+- **Recharts** — MOVEMENT tab charts (opening line comparison, price history)
 - **Railway** — cron job that hits `/api/scrape` every minute
 - **Vercel** — hosting, auto-deploys on push to `main`
 - PWA-enabled (installable, offline app-shell fallback)
@@ -19,8 +20,9 @@ app/                Pages and API routes (App Router)
   api/scrape/        POST — cron-secret-protected, runs the scraper, writes to Supabase
   api/scrape/manual/ POST — same scrape, no secret needed (dashboard Refresh button, local curl)
   api/odds/          GET  — returns latest odds per game/book/market
-components/         Reusable UI components
-lib/                Supabase client, scrapers, shared scrape logic, schema.sql
+  api/movement/      GET  — opening lines + full price history + current lines for one game
+components/         Reusable UI components (LinesTab, MovementTab, charts, shared filters)
+lib/                Supabase client, scrapers, shared scrape logic, schema.sql, migrations/
 types/              Shared TypeScript types
 public/             PWA manifest, service worker, icons
 ```
@@ -29,11 +31,12 @@ public/             PWA manifest, service worker, icons
 
 ```
 Action Network (live page)
-  -> lib/scrapers/actionNetwork.ts   (reads the embedded __NEXT_DATA__ JSON)
+  -> lib/scrapers/actionNetwork.ts   (reads the embedded __NEXT_DATA__ JSON, per sport)
   -> lib/runScrape.ts                (upserts games, records odds_snapshots + opening_lines)
   -> Supabase (Postgres)
-  -> app/api/odds/route.ts           (GET, dedupes to latest snapshot per line)
-  -> components/LinesTab.tsx         (fetches on load; REFRESH button re-scrapes then re-fetches)
+  -> app/api/odds/route.ts           (GET, dedupes to latest snapshot per line — LINES tab)
+  -> app/api/movement/route.ts       (GET, opening + full history + current — MOVEMENT tab)
+  -> components/LinesTab.tsx / MovementTab.tsx
 ```
 
 ## Setup
@@ -50,6 +53,10 @@ npm install
 2. Open the **SQL Editor** and paste in the entire contents of [`lib/schema.sql`](lib/schema.sql), then run it.
    This creates all tables (`games`, `odds_snapshots`, `opening_lines`, `steam_moves`,
    `bet_entries`, `books`, `sports`) and seeds the initial books/sports rows.
+3. **If you already ran the schema in an earlier session**, `schema.sql` alone won't add
+   new columns to existing tables — run any files in [`lib/migrations/`](lib/migrations)
+   you haven't applied yet, in order, in the same SQL Editor. As of Session 3 that's just
+   [`002_first_recorded_book.sql`](lib/migrations/002_first_recorded_book.sql).
 
 ### 3. Environment variables
 
@@ -121,16 +128,52 @@ You should see `[actionNetwork]` and `[scrape]` console logs in the terminal run
   `SUPABASE_SERVICE_KEY`, and that you restarted `npm run dev` after editing it (env vars
   only load on startup). `NEXT_PUBLIC_SUPABASE_URL` must be the **API URL**
   (`https://<project-ref>.supabase.co`), not the dashboard URL.
-- **A sport filter (WNBA/Tennis/Soccer/CS2) always shows no data** — expected for now;
-  the scraper currently only covers MLB. Other sports need their own scraper functions
-  in a future session.
+- **TENNIS or CS2 filters always show no data** — expected. MLB, WNBA, and Soccer are
+  scraped (same Action Network page shape); Tennis splits into separate ATP/WTA pages
+  with a different data shape, and Action Network has no CS2/esports coverage at all.
+  Both need a different approach in a future session, not just a tweak to the current scraper.
+- **MOVEMENT tab's Pinnacle/Circa rows always show "—" / no green bars** — expected.
+  Those are the two sharp books, but Action Network's default (US/NJ) odds pages don't
+  include them — they're region-gated. The sharp-book highlighting is wired up and will
+  light up automatically once a Pinnacle/Circa-specific fetch is added.
 - **Deployed on Vercel but still errors** — Vercel's environment variables are separate
   from your local `.env.local`; both need to be filled in independently, and Vercel needs
   a redeploy after you change them (Deployments tab → Redeploy).
 
+## MOVEMENT Tab — Understanding Opening Lines
+
+The MOVEMENT tab tracks which book posted the opening line first (or, more precisely,
+which book we *treat* as the reference open — see the caveat below), then shows how
+other books followed or moved differently since.
+
+- **Opening line comparison** (bar chart) — each book/outcome's price the moment it was
+  first recorded for this game. Sharp books (Pinnacle, Circa) are highlighted green.
+- **Price history over time** (line chart) — every recorded snapshot since, one line per
+  book/outcome, so you can see the shape of the move rather than just before/after.
+- **Line movement details** (table) — opening vs. current price per book/outcome, with
+  the change and direction at a glance.
+
+**Caveat on "first_recorded_book":** Action Network gives us one snapshot of every book
+at once per scrape, not a live feed, so we can't detect which book *genuinely* posted a
+line first in real time. `first_recorded_book` (and the tab's "Opened: ..." subheader) is
+a display choice — it prefers a sharp book when one is present, otherwise falls back to
+whichever book sorts first alphabetically. It's set once, the first time an outcome opens,
+and never changes after that.
+
+### `GET /api/movement`
+
+Query params: `game_id` (required), `market_type` (optional, defaults to `h2h`).
+
+Returns opening lines, full price history (last 2 hours, or everything available for a
+newer game), current lines, and a `referenceOpens` array (one entry per outcome) for
+everything currently recorded for that game + market. See
+[`types/odds.ts`](types/odds.ts) (`MovementResponse`) for the exact shape.
+
 ## Screenshot
 
 _Dashboard screenshot goes here._
+
+_MOVEMENT tab screenshot goes here._
 
 ## Roadmap
 

@@ -56,6 +56,12 @@ CREATE TABLE opening_lines (
   outcome_name TEXT NOT NULL,
   price DECIMAL(10,4) NOT NULL,
   point DECIMAL(6,2),
+  -- Slug of the book treated as the reference "market open" for this
+  -- (game, market, outcome) — prefers a sharp book (Pinnacle/Circa) when one
+  -- posted a line, else a deterministic fallback. Action Network gives us one
+  -- snapshot of all books at once per scrape rather than a live feed, so this
+  -- is a display choice, not a detected "who posted first" timing signal.
+  first_recorded_book TEXT,
   recorded_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(game_id, book_id, market_type, outcome_name)
 );

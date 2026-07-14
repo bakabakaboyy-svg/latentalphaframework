@@ -80,3 +80,53 @@ export interface OddsResponse {
   lastUpdated: string | null;
   error?: string;
 }
+
+// A single book's price for one outcome — used for both opening and current lines in GET /api/movement
+export interface MovementLineEntry {
+  bookSlug: string;
+  bookName: string;
+  isSharp: boolean;
+  outcomeName: string;
+  price: number;
+  point: number | null;
+  recordedAt: string;
+}
+
+export interface MovementPricePoint {
+  time: string; // ISO 8601
+  price: number;
+  point: number | null;
+}
+
+// Full price history for one (book, outcome) pair — one line on the price-history chart
+export interface MovementSeries {
+  bookSlug: string;
+  bookName: string;
+  isSharp: boolean;
+  outcomeName: string;
+  points: MovementPricePoint[];
+}
+
+// The book treated as "the" market open for one outcome (see first_recorded_book
+// comment in lib/schema.sql — a display choice, not a detected timing signal)
+export interface MovementReferenceOpen {
+  outcomeName: string;
+  bookSlug: string;
+  bookName: string;
+  price: number;
+  point: number | null;
+}
+
+// GET /api/movement response body
+export interface MovementResponse {
+  gameId: number;
+  homeTeam: string;
+  awayTeam: string;
+  commenceTime: string;
+  marketType: MarketType;
+  openingLines: MovementLineEntry[];
+  currentLines: MovementLineEntry[];
+  priceHistory: MovementSeries[];
+  referenceOpens: MovementReferenceOpen[];
+  error?: string;
+}

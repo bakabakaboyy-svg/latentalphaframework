@@ -1,12 +1,37 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useCallback, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { NavTabs, type Tab } from "@/components/NavTabs";
 import { LinesTab } from "@/components/LinesTab";
+import { MovementTab } from "@/components/MovementTab";
 import { ComingSoon } from "@/components/ComingSoon";
+import type { MarketType } from "@/types/odds";
+import type { SportFilter } from "@/components/filters";
 
-export default function Home() {
+// Sport/market filters live in the URL (?sport=mlb&market=h2h) rather than
+// component state, so switching tabs — or reloading the page — keeps the
+// same filters instead of resetting them.
+function DashboardContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("LINES");
+
+  const sport = (searchParams.get("sport") as SportFilter | null) ?? "all";
+  const market = (searchParams.get("market") as MarketType | null) ?? "h2h";
+
+  const updateParams = useCallback(
+    (next: { sport?: SportFilter; market?: MarketType }) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (next.sport) params.set("sport", next.sport);
+      if (next.market) params.set("market", next.market);
+      router.replace(`/?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const handleSportChange = useCallback((s: SportFilter) => updateParams({ sport: s }), [updateParams]);
+  const handleMarketChange = useCallback((m: MarketType) => updateParams({ market: m }), [updateParams]);
 
   return (
     <div className="flex flex-col flex-1 bg-background">
@@ -21,8 +46,22 @@ export default function Home() {
       </div>
 
       <main className="flex-1 px-6 py-6">
-        {tab === "LINES" ? <LinesTab /> : <ComingSoon tabName={tab} />}
+        {tab === "LINES" && (
+          <LinesTab sport={sport} market={market} onSportChange={handleSportChange} onMarketChange={handleMarketChange} />
+        )}
+        {tab === "MOVEMENT" && (
+          <MovementTab sport={sport} market={market} onSportChange={handleSportChange} onMarketChange={handleMarketChange} />
+        )}
+        {tab !== "LINES" && tab !== "MOVEMENT" && <ComingSoon tabName={tab} />}
       </main>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
   );
 }
