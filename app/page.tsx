@@ -58,9 +58,31 @@ function DashboardContent() {
   );
 }
 
+// useSearchParams() means DashboardContent can't be statically rendered, so
+// Next.js ships a blank shell for it until client JS hydrates. This fallback
+// (the header + a skeleton) is what paints in that gap instead of nothing.
+function DashboardSkeleton() {
+  return (
+    <div className="flex flex-col flex-1 bg-background">
+      <header className="border-b border-border px-6 py-4">
+        <h1 className="text-lg font-semibold tracking-tight">
+          LAF <span className="text-muted font-normal">— Latent Alpha Framework</span>
+        </h1>
+      </header>
+      <main className="flex-1 px-6 py-6">
+        <div className="flex flex-col gap-3">
+          {Array.from({ length: 5 }, (_, i) => (
+            <div key={i} className="skeleton rounded-md h-16 w-full" />
+          ))}
+        </div>
+      </main>
+    </div>
+  );
+}
+
 export default function Home() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<DashboardSkeleton />}>
       <DashboardContent />
     </Suspense>
   );
