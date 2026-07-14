@@ -196,6 +196,8 @@ export async function scrapeActionNetworkSport(sportSlug: SportSlug): Promise<Ga
   }
 
   const bookSlugMap = buildBookSlugMap(allBooks);
+  const bookNames = Array.from(new Set(Object.values(allBooks).map((b) => b.parent_name ?? "(unnamed)")));
+  console.log(`[actionNetwork:${sportSlug}] Books found on page:`, bookNames);
   console.log(
     `[actionNetwork:${sportSlug}] Found ${games.length} games, ${bookSlugMap.size} recognized books.`
   );
