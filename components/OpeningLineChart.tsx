@@ -34,6 +34,12 @@ function ChartTooltip({ active, payload }: { active?: boolean; payload?: { paylo
 // same "muted vs. sharp accent" contrast but stays legible.
 const SHARP_COLOR = "#22c55e";
 const REGULAR_COLOR = "#71717a";
+const PREDICTION_MARKET_COLOR = "#8b5cf6";
+
+function colorFor(entry: { isSharp: boolean; isPredictionMarket: boolean }): string {
+  if (entry.isPredictionMarket) return PREDICTION_MARKET_COLOR;
+  return entry.isSharp ? SHARP_COLOR : REGULAR_COLOR;
+}
 
 export function OpeningLineChart({ openingLines }: { openingLines: MovementLineEntry[] }) {
   if (openingLines.length === 0) {
@@ -58,7 +64,7 @@ export function OpeningLineChart({ openingLines }: { openingLines: MovementLineE
           <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
           <Bar dataKey="price" radius={[0, 4, 4, 0]} isAnimationActive={false}>
             {data.map((entry, i) => (
-              <Cell key={i} fill={entry.isSharp ? SHARP_COLOR : REGULAR_COLOR} />
+              <Cell key={i} fill={colorFor(entry)} />
             ))}
           </Bar>
         </BarChart>

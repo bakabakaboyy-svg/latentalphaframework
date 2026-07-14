@@ -46,6 +46,7 @@ export interface ScrapeResult {
   gamesUpserted: number;
   snapshotsInserted: number;
   openingLinesSet: number;
+  sources: string[]; // scrapers that ran this pass, e.g. ["action-network", "polymarket"]
   errors: string[];
   scrapedAt: string;
 }
@@ -55,6 +56,7 @@ export interface OddsLineApi {
   bookSlug: string;
   bookName: string;
   isSharp: boolean;
+  isPredictionMarket: boolean; // true for Kalshi/Polymarket — a converted probability, not a bookmaker's quote
   marketType: MarketType;
   outcomeName: string;
   price: number;
@@ -86,6 +88,7 @@ export interface MovementLineEntry {
   bookSlug: string;
   bookName: string;
   isSharp: boolean;
+  isPredictionMarket: boolean; // true for Kalshi/Polymarket — a converted probability, not a bookmaker's quote
   outcomeName: string;
   price: number;
   point: number | null;
@@ -103,6 +106,7 @@ export interface MovementSeries {
   bookSlug: string;
   bookName: string;
   isSharp: boolean;
+  isPredictionMarket: boolean;
   outcomeName: string;
   points: MovementPricePoint[];
 }

@@ -1,6 +1,39 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { scrapeActionNetworkSport, SUPPORTED_SPORTS } from "@/lib/scrapers/actionNetwork";
+import { scrapePolymarketMLB } from "@/lib/scrapers/polymarket";
 import type { GameOdds, ScrapeResult } from "@/types/odds";
+
+const GAME_MATCH_TOLERANCE_MS = 30 * 60 * 1000; // 30 minutes
+
+// True if two team names refer to the same team even if the sources phrase
+// them differently — e.g. Action Network's "American League" vs Polymarket's
+// "American" for the All-Star Game. Substring containment rather than exact
+// equality; safe for full team names since none of MLB's 30 (e.g. "Boston Red
+// Sox" / "Chicago White Sox") are substrings of one another.
+function sameTeam(a: string, b: string): boolean {
+  const x = a.toLowerCase().trim();
+  const y = b.toLowerCase().trim();
+  return x === y || x.includes(y) || y.includes(x);
+}
+
+// Polymarket and Action Network report the same real-world game under
+// different external_ids (each source has its own id scheme), so without
+// this they'd land as two separate rows in `games` instead of one row with
+// both sources' books attached. Matches by sport + team names + start time
+// within a tolerance window, since sources occasionally report slightly
+// different scheduled times (or, for special events like the All-Star Game,
+// slightly different team-name phrasing).
+function findMatchingGame(candidate: GameOdds, existing: GameOdds[]): GameOdds | null {
+  const candidateTime = new Date(candidate.commenceTime).getTime();
+  for (const game of existing) {
+    if (game.sportSlug !== candidate.sportSlug) continue;
+    if (!sameTeam(game.homeTeam, candidate.homeTeam)) continue;
+    if (!sameTeam(game.awayTeam, candidate.awayTeam)) continue;
+    const timeDiff = Math.abs(new Date(game.commenceTime).getTime() - candidateTime);
+    if (timeDiff <= GAME_MATCH_TOLERANCE_MS) return game;
+  }
+  return null;
+}
 
 // Scrapes Action Network, upserts games, records one immutable odds_snapshots
 // row per line, and locks in opening_lines the first time we see a given
@@ -14,6 +47,7 @@ export async function runScrape(): Promise<ScrapeResult> {
     gamesUpserted: 0,
     snapshotsInserted: 0,
     openingLinesSet: 0,
+    sources: [],
     errors: [],
     scrapedAt: new Date().toISOString(),
   };
@@ -50,6 +84,36 @@ export async function runScrape(): Promise<ScrapeResult> {
         result.errors.push(`[${sportSlug}] ${message}`);
       }
     }
+    if (games.length > 0) result.sources.push("action-network");
+
+    console.log("[scrape] Running Polymarket scraper (MLB)...");
+    try {
+      const polymarketGames = await scrapePolymarketMLB();
+      if (polymarketGames.length > 0) result.sources.push("polymarket");
+      for (const pmGame of polymarketGames) {
+        const matched = findMatchingGame(pmGame, games);
+        if (matched) {
+          // Reuse the matched game's external_id/team names so this merges
+          // onto the same `games` row instead of creating a duplicate — and
+          // rewrite each line's outcomeName to match, in case the two
+          // sources phrase the team name slightly differently.
+          const oldHome = pmGame.homeTeam;
+          const oldAway = pmGame.awayTeam;
+          pmGame.externalId = matched.externalId;
+          pmGame.homeTeam = matched.homeTeam;
+          pmGame.awayTeam = matched.awayTeam;
+          for (const line of pmGame.lines) {
+            if (line.outcomeName === oldHome) line.outcomeName = matched.homeTeam;
+            else if (line.outcomeName === oldAway) line.outcomeName = matched.awayTeam;
+          }
+        }
+        games.push(pmGame);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result.errors.push(`[polymarket] ${message}`);
+    }
+
     result.gamesFound = games.length;
 
     if (games.length === 0) {
@@ -57,15 +121,28 @@ export async function runScrape(): Promise<ScrapeResult> {
       return result;
     }
 
-    // 1. Upsert games (matched on external_id, which is stable across scrapes)
-    const gameRows = games.map((g) => ({
-      external_id: g.externalId,
-      sport_id: sportIdBySlug.get(g.sportSlug) ?? null,
-      home_team: g.homeTeam,
-      away_team: g.awayTeam,
-      commence_time: g.commenceTime,
-      status: g.status,
-    }));
+    // 1. Upsert games (matched on external_id, which is stable across scrapes).
+    // Deduped by external_id first — a Polymarket game merged onto an
+    // existing Action Network game (see findMatchingGame above) now shares
+    // that game's external_id, and Postgres's ON CONFLICT rejects a batch
+    // that targets the same conflict key twice.
+    function buildGameRow(g: GameOdds) {
+      return {
+        external_id: g.externalId,
+        sport_id: sportIdBySlug.get(g.sportSlug) ?? null,
+        home_team: g.homeTeam,
+        away_team: g.awayTeam,
+        commence_time: g.commenceTime,
+        status: g.status,
+      };
+    }
+    const gameRowsByExternalId = new Map<string, ReturnType<typeof buildGameRow>>();
+    for (const g of games) {
+      if (!gameRowsByExternalId.has(g.externalId)) {
+        gameRowsByExternalId.set(g.externalId, buildGameRow(g));
+      }
+    }
+    const gameRows = Array.from(gameRowsByExternalId.values());
 
     console.log(`[scrape] Upserting ${gameRows.length} games...`);
     const { data: upsertedGames, error: gamesError } = await supabase

@@ -71,6 +71,12 @@ function ChartTooltip({
 // OpeningLineChart, so sharp vs. regular reads consistently across both charts.
 const SHARP_COLOR = "#22c55e";
 const REGULAR_COLOR = "#71717a";
+const PREDICTION_MARKET_COLOR = "#8b5cf6";
+
+function colorFor(entry: { isSharp: boolean; isPredictionMarket: boolean }): string {
+  if (entry.isPredictionMarket) return PREDICTION_MARKET_COLOR;
+  return entry.isSharp ? SHARP_COLOR : REGULAR_COLOR;
+}
 
 export function PriceHistoryChart({ priceHistory }: { priceHistory: MovementSeries[] }) {
   if (priceHistory.length === 0) {
@@ -96,8 +102,8 @@ export function PriceHistoryChart({ priceHistory }: { priceHistory: MovementSeri
               key={seriesKey(s)}
               type="monotone"
               dataKey={seriesKey(s)}
-              stroke={s.isSharp ? SHARP_COLOR : REGULAR_COLOR}
-              strokeWidth={s.isSharp ? 2 : 1.5}
+              stroke={colorFor(s)}
+              strokeWidth={s.isSharp || s.isPredictionMarket ? 2 : 1.5}
               dot={false}
               connectNulls
               isAnimationActive={false}

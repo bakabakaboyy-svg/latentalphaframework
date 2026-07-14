@@ -55,18 +55,19 @@ export async function GET(request: NextRequest) {
 
     const { data: openingRows, error: openingError } = await supabase
       .from("opening_lines")
-      .select("outcome_name, price, point, recorded_at, first_recorded_book, books(slug, name, is_sharp)")
+      .select("outcome_name, price, point, recorded_at, first_recorded_book, books(slug, name, is_sharp, type)")
       .eq("game_id", gameId)
       .eq("market_type", marketType);
 
     if (openingError) throw new Error(`Failed to load opening_lines: ${openingError.message}`);
 
     const openingLines: MovementLineEntry[] = (openingRows ?? []).map((row) => {
-      const book = row.books as unknown as { slug: string; name: string; is_sharp: boolean };
+      const book = row.books as unknown as { slug: string; name: string; is_sharp: boolean; type: string };
       return {
         bookSlug: book.slug,
         bookName: book.name,
         isSharp: book.is_sharp,
+        isPredictionMarket: book.type === "prediction_market",
         outcomeName: row.outcome_name,
         price: Number(row.price),
         point: row.point === null ? null : Number(row.point),
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest) {
     // an empty chart.
     const snapshotsQuery = supabase
       .from("odds_snapshots")
-      .select("book_id, outcome_name, price, point, recorded_at, books(slug, name, is_sharp)")
+      .select("book_id, outcome_name, price, point, recorded_at, books(slug, name, is_sharp, type)")
       .eq("game_id", gameId)
       .eq("market_type", marketType)
       .order("recorded_at", { ascending: true });
@@ -110,7 +111,7 @@ export async function GET(request: NextRequest) {
     if (snapshots.length === 0) {
       const { data: allSnapshots, error: allError } = await supabase
         .from("odds_snapshots")
-        .select("book_id, outcome_name, price, point, recorded_at, books(slug, name, is_sharp)")
+        .select("book_id, outcome_name, price, point, recorded_at, books(slug, name, is_sharp, type)")
         .eq("game_id", gameId)
         .eq("market_type", marketType)
         .order("recorded_at", { ascending: true });
@@ -122,16 +123,24 @@ export async function GET(request: NextRequest) {
     const currentByKey = new Map<string, MovementLineEntry>();
 
     for (const snap of snapshots) {
-      const book = snap.books as unknown as { slug: string; name: string; is_sharp: boolean } | null;
+      const book = snap.books as unknown as { slug: string; name: string; is_sharp: boolean; type: string } | null;
       if (!book) continue;
       const key = `${book.slug}|${snap.outcome_name}`;
+      const isPredictionMarket = book.type === "prediction_market";
 
       const point = snap.point === null ? null : Number(snap.point);
       const price = Number(snap.price);
 
       let series = seriesByKey.get(key);
       if (!series) {
-        series = { bookSlug: book.slug, bookName: book.name, isSharp: book.is_sharp, outcomeName: snap.outcome_name, points: [] };
+        series = {
+          bookSlug: book.slug,
+          bookName: book.name,
+          isSharp: book.is_sharp,
+          isPredictionMarket,
+          outcomeName: snap.outcome_name,
+          points: [],
+        };
         seriesByKey.set(key, series);
       }
       series.points.push({ time: snap.recorded_at, price, point });
@@ -141,6 +150,7 @@ export async function GET(request: NextRequest) {
         bookSlug: book.slug,
         bookName: book.name,
         isSharp: book.is_sharp,
+        isPredictionMarket,
         outcomeName: snap.outcome_name,
         price,
         point,

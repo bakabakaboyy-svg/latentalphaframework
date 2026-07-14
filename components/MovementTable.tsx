@@ -11,10 +11,19 @@ function formatTimestamp(iso: string): string {
 interface Row {
   bookName: string;
   isSharp: boolean;
+  isPredictionMarket: boolean;
   outcomeName: string;
   opening: number | null;
   current: number;
   currentRecordedAt: string;
+}
+
+function PredictionMarketBadge() {
+  return (
+    <span className="ml-1.5 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold text-white bg-[#8b5cf6] align-middle">
+      PREDICTION MARKET
+    </span>
+  );
 }
 
 export function MovementTable({
@@ -32,6 +41,7 @@ export function MovementTable({
       return {
         bookName: cur.bookName,
         isSharp: cur.isSharp,
+        isPredictionMarket: cur.isPredictionMarket,
         outcomeName: cur.outcomeName,
         opening: opening ? opening.price : null,
         current: cur.price,
@@ -69,7 +79,14 @@ export function MovementTable({
                 key={`${row.bookName}-${row.outcomeName}`}
                 className={`border-t border-border hover:bg-[#1a1a1a] transition-colors ${i % 2 === 0 ? "bg-surface" : "bg-[#0f0f0f]"}`}
               >
-                <td className={`px-4 py-2 whitespace-nowrap ${row.isSharp ? "text-accent" : "text-foreground"}`}>{row.bookName}</td>
+                <td
+                  className={`px-4 py-2 whitespace-nowrap ${
+                    row.isPredictionMarket ? "text-[#8b5cf6]" : row.isSharp ? "text-accent" : "text-foreground"
+                  }`}
+                >
+                  {row.bookName}
+                  {row.isPredictionMarket && <PredictionMarketBadge />}
+                </td>
                 <td className="px-4 py-2 whitespace-nowrap text-foreground">{row.outcomeName}</td>
                 <td className="px-4 py-2 font-mono whitespace-nowrap text-muted">
                   {row.opening !== null ? formatPrice(row.opening) : "—"}

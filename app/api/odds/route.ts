@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
 
     let snapshotsQuery = supabase
       .from("odds_snapshots")
-      .select("id, game_id, book_id, market_type, outcome_name, price, point, recorded_at, books(slug, name, is_sharp)")
+      .select("id, game_id, book_id, market_type, outcome_name, price, point, recorded_at, books(slug, name, is_sharp, type)")
       .in("game_id", gameIds)
       .order("recorded_at", { ascending: false })
       .limit(5000);
@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
       if (seen.has(key)) continue; // already have a more recent snapshot for this combo
       seen.add(key);
 
-      const book = snap.books as unknown as { slug: string; name: string; is_sharp: boolean } | null;
+      const book = snap.books as unknown as { slug: string; name: string; is_sharp: boolean; type: string } | null;
       if (!book) continue;
 
       if (!lastUpdated || snap.recorded_at > lastUpdated) lastUpdated = snap.recorded_at;
@@ -102,6 +102,7 @@ export async function GET(request: NextRequest) {
         bookSlug: book.slug,
         bookName: book.name,
         isSharp: book.is_sharp,
+        isPredictionMarket: book.type === "prediction_market",
         marketType: snap.market_type as OddsLineApi["marketType"],
         outcomeName: snap.outcome_name,
         price: Number(snap.price),

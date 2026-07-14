@@ -200,6 +200,13 @@ export function MovementTab({
                 <PriceHistoryChart priceHistory={movement.priceHistory} />
               </div>
 
+              {movement.priceHistory.some((s) => s.isPredictionMarket) && (
+                <p className="text-xs text-muted -mt-3">
+                  Kalshi and Polymarket show binary probabilities converted to American odds format for comparison.
+                  Actual markets are probability-based.
+                </p>
+              )}
+
               <div>
                 <div className="text-xs font-mono uppercase text-muted mb-3">Line movement details</div>
                 <MovementTable openingLines={movement.openingLines} currentLines={movement.currentLines} />

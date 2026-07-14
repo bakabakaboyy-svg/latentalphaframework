@@ -9,6 +9,7 @@ surfaces arbitrage opportunities across sportsbooks and prediction markets.
 - **Next.js** (App Router) + TypeScript + Tailwind CSS — frontend & API routes
 - **Supabase** (Postgres) — database
 - **Recharts** — MOVEMENT tab charts (opening line comparison, price history)
+- Prediction markets: Kalshi (via Action Network), Polymarket (direct, MLB only — see below)
 - **Railway** — cron job that hits `/api/scrape` every minute
 - **Vercel** — hosting, auto-deploys on push to `main`
 - PWA-enabled (installable, offline app-shell fallback)
@@ -22,7 +23,8 @@ app/                Pages and API routes (App Router)
   api/odds/          GET  — returns latest odds per game/book/market
   api/movement/      GET  — opening lines + full price history + current lines for one game
 components/         Reusable UI components (LinesTab, MovementTab, charts, shared filters)
-lib/                Supabase client, scrapers, shared scrape logic, schema.sql, migrations/
+lib/                Supabase client, scrapers (actionNetwork, polymarket), shared scrape
+                    logic, odds normalization (lib/utils/normalizeOdds.ts), schema.sql, migrations/
 types/              Shared TypeScript types
 public/             PWA manifest, service worker, icons
 ```
@@ -30,10 +32,14 @@ public/             PWA manifest, service worker, icons
 ## Data Flow
 
 ```
-Action Network (live page)
-  -> lib/scrapers/actionNetwork.ts   (reads the embedded __NEXT_DATA__ JSON, per sport)
-  -> lib/runScrape.ts                (upserts games, records odds_snapshots + opening_lines)
-  -> Supabase (Postgres)
+Action Network (live page, includes Kalshi's odds already)  ─┐
+Polymarket gamma API (MLB win-markets, probabilities)        ─┼─> lib/runScrape.ts
+                                                               │     (matches Polymarket games onto the
+                                                               │      same row Action Network already
+                                                               │      created, converts probabilities to
+                                                               │      American odds, upserts games,
+                                                               │      records odds_snapshots + opening_lines)
+                                                               └─> Supabase (Postgres)
   -> app/api/odds/route.ts           (GET, dedupes to latest snapshot per line — LINES tab)
   -> app/api/movement/route.ts       (GET, opening + full history + current — MOVEMENT tab)
   -> components/LinesTab.tsx / MovementTab.tsx
@@ -168,6 +174,35 @@ Returns opening lines, full price history (last 2 hours, or everything available
 newer game), current lines, and a `referenceOpens` array (one entry per outcome) for
 everything currently recorded for that game + market. See
 [`types/odds.ts`](types/odds.ts) (`MovementResponse`) for the exact shape.
+
+## Prediction Markets
+
+LAF tracks Kalshi and Polymarket for sports events, alongside sportsbooks.
+
+- **Kalshi** odds arrive as part of the regular Action Network scrape — Action Network
+  already lists Kalshi as a book on its odds pages and reports its contracts in American
+  odds format directly, so no separate Kalshi integration was needed (a dedicated Kalshi
+  scraper was scoped for this session but turned out to be redundant — see
+  [`lib/scrapers/actionNetwork.ts`](lib/scrapers/actionNetwork.ts) for the up-to-date list
+  of books it recognizes).
+- **Polymarket** is scraped directly ([`lib/scrapers/polymarket.ts`](lib/scrapers/polymarket.ts))
+  via their public `gamma-api.polymarket.com` API — no auth required. Currently **MLB
+  only**: Polymarket has genuine daily per-game "win" markets for MLB, but only
+  season-long futures (Champion, MVP, etc.) for WNBA/Soccer, which don't fit our per-game
+  schema. **Polymarket is geo-restricted for US users** — the API itself is publicly
+  reachable, but check Polymarket's terms before relying on this for anything beyond
+  personal research.
+- Kalshi and Polymarket odds are displayed as American odds for easy comparison with
+  sportsbooks (`lib/utils/normalizeOdds.ts` converts each market's probability using the
+  standard fair-odds formula), but the underlying markets are probability-based — a "price"
+  from either one is really "the market currently thinks this has an X% chance," not a
+  bookmaker's quote. The MOVEMENT tab highlights both in purple and notes this under the
+  price history chart whenever a prediction market is present in the data.
+- Because Polymarket and Action Network report the same real-world game under different
+  IDs, `lib/runScrape.ts` matches Polymarket games onto the existing Action Network game
+  (same sport + team names + start time within 30 minutes) so all books — sportsbooks and
+  prediction markets alike — land on one row instead of splitting into duplicate games.
+- Docs: [Kalshi API docs](https://docs.kalshi.com/) · [Polymarket](https://polymarket.com/)
 
 ## Screenshot
 
