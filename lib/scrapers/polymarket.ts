@@ -50,14 +50,32 @@ function parseJsonArray(raw: string): string[] {
   }
 }
 
-// Finds the moneyline/"win" market within an event's markets — the one whose
-// two outcomes are exactly the two team names — as opposed to prop markets
-// like "Will there be a run in the 1st inning?" (outcomes: Yes/No) that
-// Polymarket also lists under the same event.
-function findWinMarket(event: PolymarketEvent, homeTeam: string, awayTeam: string): PolymarketMarket | null {
+// Finds the moneyline/"win" market within an event's markets, as opposed to
+// prop/spread/total markets Polymarket also lists under the same event
+// ("Will there be a run in the 1st inning?", "Spread: National (-1.5)", etc).
+//
+// Primary signal: the market whose `question` matches the event's own
+// `title` — this is Polymarket's own "this is the headline market" marker,
+// and holds even when `event.teams[].name` (short names) and the win
+// market's own outcome labels are phrased differently. Confirmed necessary
+// via a real bug: for the All-Star Game, event.teams uses "American"/
+// "National", but the actual win market's outcomes are "American League"/
+// "National League" — matching outcomes against team names (the fallback
+// below) instead found the *Spread* sub-market, whose outcomes happen to be
+// the literal short team names, and silently mislabeled spread probabilities
+// as the moneyline.
+function findWinMarket(event: PolymarketEvent): PolymarketMarket | null {
+  const byTitle = event.markets.find((m) => m.question === event.title);
+  if (byTitle && parseJsonArray(byTitle.outcomes).length === 2) return byTitle;
+
+  // Fallback for events where the title doesn't exactly match any market's
+  // question: a market whose two outcomes are exactly the two team names.
+  const home = event.teams?.find((t) => t.ordering === "home");
+  const away = event.teams?.find((t) => t.ordering === "away");
+  if (!home || !away) return null;
   for (const market of event.markets) {
     const outcomes = parseJsonArray(market.outcomes);
-    if (outcomes.length === 2 && outcomes.includes(homeTeam) && outcomes.includes(awayTeam)) {
+    if (outcomes.length === 2 && outcomes.includes(home.name) && outcomes.includes(away.name)) {
       return market;
     }
   }
@@ -106,7 +124,7 @@ export async function scrapePolymarketMLB(): Promise<GameOdds[]> {
       continue; // futures/props events (no team-vs-team structure) — not a game
     }
 
-    const winMarket = findWinMarket(event, home.name, away.name);
+    const winMarket = findWinMarket(event);
     if (!winMarket) {
       console.log(`[polymarket:mlb] No win market found for ${away.name} @ ${home.name}, skipping.`);
       continue;

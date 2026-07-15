@@ -196,6 +196,31 @@ export async function runScrape(): Promise<ScrapeResult> {
       return result;
     }
 
+    // Defend against a source reporting two different prices for the same
+    // (game, book, market, outcome) within one scrape — seen once from
+    // Action Network (looked like a transient response inconsistency on
+    // their end, not a mapping bug: re-fetching moments later showed a
+    // single clean price). odds_snapshots has no unique constraint, so
+    // without this a source glitch writes straight through as corrupt data
+    // — e.g. a real -130 line and a garbage +852 both landing as "current."
+    // Keeps the last-seen price and logs the conflict so a recurrence is visible.
+    const dedupedByKey = new Map<string, SnapshotRow>();
+    for (const row of snapshotRows) {
+      const key = `${row.game_id}|${row.book_id}|${row.market_type}|${row.outcome_name}`;
+      const existing = dedupedByKey.get(key);
+      if (existing && existing.price !== row.price) {
+        console.warn(
+          `[scrape] Conflicting prices for game=${row.game_id} book=${row.book_id} ${row.market_type}/${row.outcome_name}: ${existing.price} vs ${row.price} — keeping ${row.price}.`
+        );
+      }
+      dedupedByKey.set(key, row);
+    }
+    const dedupedSnapshotRows = Array.from(dedupedByKey.values());
+    if (dedupedSnapshotRows.length !== snapshotRows.length) {
+      snapshotRows.length = 0;
+      snapshotRows.push(...dedupedSnapshotRows);
+    }
+
     // Pick one "reference" book per (game, market, outcome) — the book whose
     // opening price we treat as *the* market open for display purposes (e.g.
     // "Opened: -110 (Pinnacle)"). Prefers a sharp book if one posted a line,

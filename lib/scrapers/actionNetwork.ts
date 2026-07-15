@@ -52,6 +52,7 @@ interface ActionNetworkOutcome {
   team_id?: number;
   odds: number;
   value: number;
+  is_live?: boolean;
 }
 
 interface ActionNetworkGame {
@@ -122,6 +123,16 @@ function outcomesToLines(
   const lines: OddsLine[] = [];
 
   for (const outcome of outcomes) {
+    // Action Network sometimes lists both the pregame line and a live/in-play
+    // line for the same side under the same market once a game is close to
+    // (or at) start time — same side/team_id, different market_id, flagged
+    // is_live: true. Confirmed via a real corrupted read: the All-Star Game's
+    // DraftKings moneyline briefly carried both, and without this filter we'd
+    // record whichever happened to be later in the array as if it were the
+    // pregame price. LAF tracks pregame line movement, not live betting, so
+    // live entries are skipped entirely rather than merged or preferred.
+    if (outcome.is_live) continue;
+
     let outcomeName: string;
     let point: number | null = null;
 
