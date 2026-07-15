@@ -69,18 +69,34 @@ export async function GET(request: NextRequest) {
       bookId = book.id;
     }
 
-    let snapshotsQuery = supabase
-      .from("odds_snapshots")
-      .select("id, game_id, book_id, market_type, outcome_name, price, point, recorded_at, books(slug, name, is_sharp, type)")
-      .in("game_id", gameIds)
-      .order("recorded_at", { ascending: false })
-      .limit(5000);
+    // One query per game_id rather than a single query with a blanket limit
+    // ordered by recorded_at across every requested game. With a global
+    // limit, games whose snapshots happen to be older than the N-th most
+    // recent snapshot *across every other requested game combined* were
+    // silently getting zero odds back — real bug, found when "all sports"
+    // (a much bigger combined snapshot pool than any single sport) starved
+    // out a game that had plenty of its own recent data. Per-game queries
+    // guarantee every requested game gets its own fair share.
+    const PER_GAME_SNAPSHOT_LIMIT = 150;
 
-    if (marketType) snapshotsQuery = snapshotsQuery.eq("market_type", marketType);
-    if (bookId) snapshotsQuery = snapshotsQuery.eq("book_id", bookId);
+    const snapshotBatches = await Promise.all(
+      gameIds.map(async (gameId) => {
+        let q = supabase
+          .from("odds_snapshots")
+          .select("id, game_id, book_id, market_type, outcome_name, price, point, recorded_at, books(slug, name, is_sharp, type)")
+          .eq("game_id", gameId)
+          .order("recorded_at", { ascending: false })
+          .limit(PER_GAME_SNAPSHOT_LIMIT);
 
-    const { data: snapshots, error: snapshotsError } = await snapshotsQuery;
-    if (snapshotsError) throw new Error(`Failed to load odds_snapshots: ${snapshotsError.message}`);
+        if (marketType) q = q.eq("market_type", marketType);
+        if (bookId) q = q.eq("book_id", bookId);
+
+        const { data, error } = await q;
+        if (error) throw new Error(`Failed to load odds_snapshots for game ${gameId}: ${error.message}`);
+        return data ?? [];
+      })
+    );
+    const snapshots = snapshotBatches.flat();
 
     // De-dupe to the most recent snapshot per (game, book, market, outcome),
     // grouping lines onto their game as we go.

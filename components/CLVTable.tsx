@@ -151,7 +151,7 @@ export function CLVTable({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left">
-                {["GAME", "MARKET", "OUTCOME", "BOOK", "ENTRY", "CURRENT", "CHANGE", "CLV%", "THRESHOLD", "ACTION"].map((h) => (
+                {["GAME", "MARKET", "OUTCOME", "BOOK", "ENTRY PRICE", "CURRENT PRICE", "CHANGE", "CLV%", "THRESHOLD", "ACTION"].map((h) => (
                   <th key={h} className="px-3 py-2 font-mono uppercase text-muted text-[11px] font-normal whitespace-nowrap">
                     {h}
                   </th>
