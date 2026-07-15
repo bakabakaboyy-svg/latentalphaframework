@@ -2,7 +2,11 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { scrapeActionNetworkSport, SUPPORTED_SPORTS } from "@/lib/scrapers/actionNetwork";
 import { scrapePolymarketMLB } from "@/lib/scrapers/polymarket";
 import { detectSteamMoves } from "@/lib/utils/steamDetection";
+import { getLatestGamesWithOdds } from "@/lib/odds";
+import { detectAllArbs } from "@/lib/utils/arbDetection";
 import type { GameOdds, ScrapeResult } from "@/types/odds";
+
+const MIN_ARB_PERCENTAGE = 0.5;
 
 const GAME_MATCH_TOLERANCE_MS = 30 * 60 * 1000; // 30 minutes
 
@@ -49,6 +53,7 @@ export async function runScrape(): Promise<ScrapeResult> {
     snapshotsInserted: 0,
     openingLinesSet: 0,
     steamMovesDetected: 0,
+    arbitrageOpportunitiesFound: 0,
     sources: [],
     errors: [],
     scrapedAt: new Date().toISOString(),
@@ -335,6 +340,65 @@ export async function runScrape(): Promise<ScrapeResult> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       result.errors.push(`[steam] ${message}`);
+    }
+
+    // 6. Arbitrage detection — re-reads each touched game's current best
+    // prices (including the snapshot we just inserted) and logs any
+    // guaranteed-profit opportunities to arbitrage_opportunities. Isolated in
+    // its own try/catch, same as steam, so a detection hiccup doesn't fail an
+    // otherwise-successful scrape.
+    try {
+      const touchedGameIds = Array.from(rowsByGameId.keys());
+      const touchedGameRows = touchedGameIds
+        .map((gameId) => {
+          const info = gameInfoById.get(gameId);
+          if (!info) return null;
+          return {
+            id: gameId,
+            external_id: info.externalId,
+            home_team: info.homeTeam,
+            away_team: info.awayTeam,
+            commence_time: info.commenceTime,
+            status: info.status,
+            sport_id: null,
+            sports: { slug: info.sportSlug },
+          };
+        })
+        .filter((row): row is NonNullable<typeof row> => row !== null);
+
+      const gamesWithOdds = await getLatestGamesWithOdds(supabase, touchedGameRows);
+      const opportunities = detectAllArbs(gamesWithOdds, MIN_ARB_PERCENTAGE);
+
+      if (opportunities.length > 0) {
+        const { data: insertedArbs, error: arbError } = await supabase
+          .from("arbitrage_opportunities")
+          .insert(
+            opportunities.map((opp) => ({
+              game_id: opp.gameId,
+              market_type: opp.marketType,
+              point: opp.point,
+              outcome_a: opp.legs[0].outcomeName,
+              odds_a: opp.legs[0].odds,
+              book_a: opp.legs[0].bookName,
+              outcome_b: opp.legs[1].outcomeName,
+              odds_b: opp.legs[1].odds,
+              book_b: opp.legs[1].bookName,
+              outcome_c: opp.legs[2]?.outcomeName ?? null,
+              odds_c: opp.legs[2]?.odds ?? null,
+              book_c: opp.legs[2]?.bookName ?? null,
+              is_three_way: opp.isThreeWay,
+              arb_percentage: opp.arbPercentage,
+              detected_at: result.scrapedAt,
+            }))
+          )
+          .select("id");
+        if (arbError) throw new Error(`Failed to insert arbitrage_opportunities: ${arbError.message}`);
+        result.arbitrageOpportunitiesFound = insertedArbs?.length ?? 0;
+      }
+      console.log(`[scrape] Arb detection: ${result.arbitrageOpportunitiesFound} arbitrage opportunity(ies) found in this scrape.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result.errors.push(`[arb] ${message}`);
     }
 
     result.success = true;

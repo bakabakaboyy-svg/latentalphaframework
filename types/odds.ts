@@ -47,6 +47,7 @@ export interface ScrapeResult {
   snapshotsInserted: number;
   openingLinesSet: number;
   steamMovesDetected: number;
+  arbitrageOpportunitiesFound: number;
   sources: string[]; // scrapers that ran this pass, e.g. ["action-network", "polymarket"]
   errors: string[];
   scrapedAt: string;
@@ -227,5 +228,53 @@ export interface UpdateBetRequest {
 export interface UpdateBetResponse {
   success: boolean;
   finalClvPercentage?: number;
+  error?: string;
+}
+
+// One side of an arbitrage opportunity — the best available price for one
+// outcome, at the book offering it.
+export interface ArbLeg {
+  outcomeName: string;
+  odds: number;
+  bookSlug: string;
+  bookName: string;
+  impliedProb: number; // raw, vig-included implied probability of this leg's price
+  betSplit: number; // fraction of total stake to place on this leg, sums to 1 across all legs
+}
+
+// A detected arbitrage opportunity — guaranteed profit if you bet every leg
+// at its listed book. 2 legs for h2h/spreads/totals, 3 legs for soccer h2h
+// (Home/Draw/Away). Computed live from current odds on every request, not
+// read from arbitrage_opportunities (see lib/utils/arbDetection.ts) — that
+// table is a historical log used only for the 24h stats card.
+export interface ArbOpportunity {
+  id: string; // stable per (gameId, marketType, point) across refreshes — React key + "still active" diffing
+  gameId: number;
+  homeTeam: string;
+  awayTeam: string;
+  sportSlug: string;
+  marketType: MarketType;
+  point: number | null; // shared line point for spreads/totals; null for h2h
+  legs: ArbLeg[];
+  isThreeWay: boolean;
+  arbPercentage: number;
+  detectedAt: string;
+}
+
+// Derived from the arbitrage_opportunities historical log over the last 24h.
+export interface ArbStats {
+  totalDetected24h: number;
+  activeNow: number;
+  highestArbPercentage24h: number | null;
+  mostCommonMarket: string | null; // display label, e.g. "MONEYLINE"
+  mostProfitableBookPair: string | null; // e.g. "FanDuel ↔ DraftKings"
+}
+
+// GET /api/arb response body
+export interface ArbResponse {
+  arbitrageOpportunities: ArbOpportunity[];
+  totalArbsAvailable: number;
+  highestArbPercentage: number | null;
+  stats: ArbStats;
   error?: string;
 }

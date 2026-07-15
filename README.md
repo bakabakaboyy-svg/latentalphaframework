@@ -24,10 +24,12 @@ app/                Pages and API routes (App Router)
   api/movement/      GET  — opening lines + full price history + current lines for one game
   api/steam/         GET  — steam_moves in the last N hours, plus summary stats
   api/clv/           GET/POST/PUT — open bets w/ live CLV, log a bet, close a bet
-components/         Reusable UI components (LinesTab, MovementTab, SteamTab, CLVTab, charts,
-                    shared filters, Toast)
+  api/arb/           GET  — live arb opportunities computed from current odds, plus 24h stats
+components/         Reusable UI components (LinesTab, MovementTab, SteamTab, CLVTab, ArbTab,
+                    charts, shared filters, Toast)
 lib/                Supabase client, scrapers (actionNetwork, polymarket), shared scrape
-                    logic, odds normalization + steam detection + CLV math (lib/utils/),
+                    logic, shared "latest odds per game" loader (lib/odds.ts), odds
+                    normalization + steam/arb detection + CLV/EV math (lib/utils/),
                     schema.sql, migrations/
 types/              Shared TypeScript types
 public/             PWA manifest, service worker, icons
@@ -313,6 +315,64 @@ Statistics card is upfront about this rather than showing a fabricated win rate.
 See [`types/odds.ts`](types/odds.ts) (`BetEntry`, `CLVResponse`, `LogBetRequest`,
 `UpdateBetRequest`) for exact shapes.
 
+## ARB Tab — True Arbitrage Detection
+
+True arbitrage is a guaranteed profit opportunity: bet both (or all) sides of a market
+at different books, and you profit regardless of outcome. It exists whenever the best
+available prices across books are collectively "under 100%" once vig is stripped out —
+the books are, between them, offering a better deal than either one intends on its own.
+
+**No-vig math** (`lib/utils/noVigCalculator.ts`):
+
+1. Convert each side's American odds to an implied probability (`americanToImpliedProb`)
+   — this still includes the book's vig.
+2. Sum the best available probability for every outcome in the market.
+3. If that sum is **less than 1.0**, an arb exists — `arb_percentage = (1 - sum) * 100`.
+4. Stake size per leg is proportional to that leg's raw implied probability
+   (`stake_i = prob_i / sum(probs)`), which is what actually locks in equal profit
+   across every outcome given the real prices offered — not the vig-removed "true"
+   probability, which sums to 1 by construction and would misprice the hedge.
+
+```
+Yankees -120 at FanDuel    (prob 0.5455)
+Red Sox +130 at DraftKings (prob 0.4348)
+Sum: 0.9803  ->  1.97% guaranteed profit
+Stake split: 55.65% on Yankees, 44.35% on Red Sox
+```
+
+**Two-way markets** (moneyline for most sports, spreads, totals) compare the best two
+prices for a line. **Three-way markets** — soccer moneyline's Home/Draw/Away — extend
+the same math to three legs (`detectThreeWayArb`), since Draw is a genuinely separate,
+independently-priced outcome there, not a synthetic third option.
+
+Live arb cards on this tab are **computed fresh from current odds on every request** —
+the same "don't trust a stale cache" philosophy as the CLV tab's live-computed CURRENT
+PRICE — since a real arb can close in seconds as soon as one book moves. The
+`arbitrage_opportunities` table is a historical log the scraper appends to on every run
+(same pattern as `steam_moves`), used only to power the "Arbitrage Activity (Last 24
+Hours)" stats card, not the live list itself.
+
+**Why arbs close quickly:** once detected, sharp bettors (and the books' own risk
+systems) exploit or correct them within seconds to minutes, moving lines to eliminate the
+edge. Arbitrage opportunities are rare, small (often under 2%), and short-lived — this
+tab is about catching them fast, not finding a standing edge.
+
+### `GET /api/arb`
+
+- `?sport=mlb&market=h2h&minArb=1.0` — sport/market filters plus a minimum arb%
+  threshold (server-side; the tab itself fetches with `minArb=0` and filters client-side
+  via the threshold slider for instant response).
+- Returns `arbitrageOpportunities` (each with 2 or 3 `legs`, sorted by `arbPercentage`
+  descending), `totalArbsAvailable`, `highestArbPercentage`, and a `stats` block covering
+  the last 24 hours.
+
+See [`types/odds.ts`](types/odds.ts) (`ArbOpportunity`, `ArbLeg`, `ArbStats`,
+`ArbResponse`) for exact shapes.
+
+**LOG AS HEDGE** logs both (or all) legs of an arb straight to the CLV tab as separate
+bet entries, split proportionally across whatever total stake you enter — so a hedge you
+actually place shows up in your CLV history like any other bet.
+
 ## Screenshot
 
 _Dashboard screenshot goes here._
@@ -322,6 +382,8 @@ _MOVEMENT tab screenshot goes here._
 _STEAM tab screenshot goes here._
 
 _CLV tab screenshot goes here._
+
+_ARB tab screenshot goes here._
 
 ## Roadmap
 
