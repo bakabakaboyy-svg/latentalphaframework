@@ -30,6 +30,31 @@ function formatRelativeTime(iso: string): string {
   return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
 }
 
+interface GameGroup {
+  gameId: number;
+  homeTeam: string;
+  awayTeam: string;
+  moves: SteamMove[];
+}
+
+// HISTORY MODE groups moves by game. Moves arrive newest-first from the API,
+// so both the group order (by each group's most recent move) and the moves
+// within a group stay chronological.
+function groupByGame(moves: SteamMove[]): GameGroup[] {
+  const order: number[] = [];
+  const groups = new Map<number, GameGroup>();
+  for (const move of moves) {
+    let group = groups.get(move.gameId);
+    if (!group) {
+      group = { gameId: move.gameId, homeTeam: move.homeTeam, awayTeam: move.awayTeam, moves: [] };
+      groups.set(move.gameId, group);
+      order.push(move.gameId);
+    }
+    group.moves.push(move);
+  }
+  return order.map((id) => groups.get(id)!);
+}
+
 function RefreshIcon({ spinning }: { spinning: boolean }) {
   return (
     <svg viewBox="0 0 24 24" fill="none" className={`w-3 h-3 ${spinning ? "animate-spin" : ""}`}>
@@ -44,7 +69,15 @@ function RefreshIcon({ spinning }: { spinning: boolean }) {
   );
 }
 
-function SteamCard({ move, condensed }: { move: SteamMove; condensed: boolean }) {
+function SteamCard({
+  move,
+  condensed,
+  showGame = true,
+}: {
+  move: SteamMove;
+  condensed: boolean;
+  showGame?: boolean;
+}) {
   const isUp = move.direction === "up";
   const arrow = isUp ? "↗" : "↘";
   const arrowColor = isUp ? "text-accent" : "text-danger";
@@ -55,9 +88,11 @@ function SteamCard({ move, condensed }: { move: SteamMove; condensed: boolean })
       <div className="rounded-md border-l-2 border-accent bg-surface px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <span className={`${arrowColor} font-bold`}>{arrow}</span>
-          <span className="text-foreground whitespace-nowrap">
-            {move.awayTeam} @ {move.homeTeam}
-          </span>
+          {showGame && (
+            <span className="text-foreground whitespace-nowrap">
+              {move.awayTeam} @ {move.homeTeam}
+            </span>
+          )}
           <span className="text-muted whitespace-nowrap">
             {MARKET_LABELS[move.marketType]} · {move.outcomeName} · {move.triggerBook}
           </span>
@@ -229,10 +264,25 @@ export function SteamTab({
         </div>
       )}
 
-      {!loading && displayedMoves.length > 0 && (
+      {!loading && mode === "LIVE" && displayedMoves.length > 0 && (
         <div className="flex flex-col gap-3">
           {displayedMoves.map((move) => (
-            <SteamCard key={move.id} move={move} condensed={mode === "HISTORY"} />
+            <SteamCard key={move.id} move={move} condensed={false} />
+          ))}
+        </div>
+      )}
+
+      {!loading && mode === "HISTORY" && displayedMoves.length > 0 && (
+        <div className="flex flex-col gap-4">
+          {groupByGame(displayedMoves).map((group) => (
+            <div key={group.gameId} className="flex flex-col gap-1.5">
+              <div className="text-xs font-medium text-foreground">
+                {group.awayTeam} <span className="text-muted">@</span> {group.homeTeam}
+              </div>
+              {group.moves.map((move) => (
+                <SteamCard key={move.id} move={move} condensed showGame={false} />
+              ))}
+            </div>
           ))}
         </div>
       )}
