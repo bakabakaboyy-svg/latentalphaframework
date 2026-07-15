@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { NavTabs, type Tab } from "@/components/NavTabs";
+import { Sidebar, type Tab } from "@/components/Sidebar";
 import { LinesTab } from "@/components/LinesTab";
 import { MovementTab } from "@/components/MovementTab";
 import { SteamTab } from "@/components/SteamTab";
@@ -13,6 +13,7 @@ import type { MarketType, SteamResponse } from "@/types/odds";
 import type { SportFilter } from "@/components/filters";
 
 const STEAM_INDICATOR_POLL_MS = 60_000;
+const MOBILE_BREAKPOINT_PX = 768;
 
 // Polls /api/steam (unfiltered — any sport) once a minute for whether any
 // steam moved in the last 30 minutes, so the nav's 🔥 badge reflects overall
@@ -67,6 +68,28 @@ function useSteamIndicator(): boolean {
   return active;
 }
 
+function matchesMobileBreakpoint(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`).matches;
+}
+
+// Starts collapsed below MOBILE_BREAKPOINT_PX (computed synchronously at
+// initial state, not in an effect, so there's no guaranteed extra render on
+// mount) and re-syncs whenever the viewport crosses that boundary, without
+// fighting a manual toggle made while already on one side of it.
+function useAutoCollapseSidebar(): [boolean, (collapsed: boolean) => void] {
+  const [collapsed, setCollapsed] = useState(matchesMobileBreakpoint);
+
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${MOBILE_BREAKPOINT_PX}px)`);
+    const handleChange = (e: MediaQueryListEvent) => setCollapsed(e.matches);
+    mq.addEventListener("change", handleChange);
+    return () => mq.removeEventListener("change", handleChange);
+  }, []);
+
+  return [collapsed, setCollapsed];
+}
+
 // Sport/market filters live in the URL (?sport=mlb&market=h2h) rather than
 // component state, so switching tabs — or reloading the page — keeps the
 // same filters instead of resetting them.
@@ -75,6 +98,7 @@ function DashboardContent() {
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("LINES");
   const steamActive = useSteamIndicator();
+  const [sidebarCollapsed, setSidebarCollapsed] = useAutoCollapseSidebar();
 
   const sport = (searchParams.get("sport") as SportFilter | null) ?? "all";
   const market = (searchParams.get("market") as MarketType | null) ?? "h2h";
@@ -93,18 +117,16 @@ function DashboardContent() {
   const handleMarketChange = useCallback((m: MarketType) => updateParams({ market: m }), [updateParams]);
 
   return (
-    <div className="flex flex-col flex-1 bg-background">
-      <header className="border-b border-border px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">
-          LAF <span className="text-muted font-normal">— Latent Alpha Framework</span>
-        </h1>
-      </header>
+    <div className="flex h-screen bg-background overflow-hidden">
+      <Sidebar
+        active={tab}
+        onChange={setTab}
+        steamActive={steamActive}
+        collapsed={sidebarCollapsed}
+        onToggleCollapsed={() => setSidebarCollapsed(!sidebarCollapsed)}
+      />
 
-      <div className="px-6 pt-2">
-        <NavTabs active={tab} onChange={setTab} steamActive={steamActive} />
-      </div>
-
-      <main className="flex-1 px-6 py-6">
+      <main className="flex-1 overflow-y-auto px-6 py-6">
         {tab === "LINES" && (
           <LinesTab sport={sport} market={market} onSportChange={handleSportChange} onMarketChange={handleMarketChange} />
         )}
@@ -128,16 +150,12 @@ function DashboardContent() {
 
 // useSearchParams() means DashboardContent can't be statically rendered, so
 // Next.js ships a blank shell for it until client JS hydrates. This fallback
-// (the header + a skeleton) is what paints in that gap instead of nothing.
+// (a bare sidebar rail + skeleton) is what paints in that gap instead of nothing.
 function DashboardSkeleton() {
   return (
-    <div className="flex flex-col flex-1 bg-background">
-      <header className="border-b border-border px-6 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">
-          LAF <span className="text-muted font-normal">— Latent Alpha Framework</span>
-        </h1>
-      </header>
-      <main className="flex-1 px-6 py-6">
+    <div className="flex h-screen bg-background overflow-hidden">
+      <div className="w-[220px] shrink-0 h-full bg-[#0f0f0f] border-r border-border" />
+      <main className="flex-1 overflow-y-auto px-6 py-6">
         <div className="flex flex-col gap-3">
           {Array.from({ length: 5 }, (_, i) => (
             <div key={i} className="skeleton rounded-md h-16 w-full" />
