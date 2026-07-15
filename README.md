@@ -214,11 +214,17 @@ LAF tracks Kalshi and Polymarket for sports events, alongside sportsbooks.
   reachable, but check Polymarket's terms before relying on this for anything beyond
   personal research.
 - Kalshi and Polymarket odds are displayed as American odds for easy comparison with
-  sportsbooks (`lib/utils/normalizeOdds.ts` converts each market's probability using the
-  standard fair-odds formula), but the underlying markets are probability-based — a "price"
-  from either one is really "the market currently thinks this has an X% chance," not a
-  bookmaker's quote. The MOVEMENT tab highlights both in purple and notes this under the
-  price history chart whenever a prediction market is present in the data.
+  sportsbooks. Polymarket's price is the **real executable cost to buy that side right
+  now** — the live order-book ask, plus Polymarket's taker fee (`fee = shares × feeRate ×
+  p × (1-p)`, 5% for sports as of July 2026, per
+  [docs.polymarket.com/trading/fees](https://docs.polymarket.com/trading/fees)) — not the
+  fair-value midpoint (`outcomePrices`). The midpoint looks "juiceless" because it's
+  exactly `(bestBid + bestAsk) / 2` by construction; it's the right number for estimating
+  true probability, but the wrong one for "what would I actually pay to place this bet,"
+  which is what this app is for. See `lib/scrapers/polymarket.ts` for the exact math, and
+  `lib/utils/normalizeOdds.ts` for the probability → American odds conversion itself (that
+  part IS the standard fair-odds formula — it's the input probability that changed, not
+  the conversion). The MOVEMENT tab highlights both prediction markets in purple.
 - Because Polymarket and Action Network report the same real-world game under different
   IDs, `lib/runScrape.ts` matches Polymarket games onto the existing Action Network game
   (same sport + team names + start time within 30 minutes) so all books — sportsbooks and

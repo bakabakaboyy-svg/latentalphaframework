@@ -202,8 +202,9 @@ export function MovementTab({
 
               {movement.priceHistory.some((s) => s.isPredictionMarket) && (
                 <p className="text-xs text-muted -mt-3">
-                  Kalshi and Polymarket show binary probabilities converted to American odds format for comparison.
-                  Actual markets are probability-based.
+                  Kalshi and Polymarket are shown in American odds for comparison with sportsbooks. Polymarket&apos;s
+                  price reflects the real cost to execute a trade right now (live ask + Polymarket&apos;s taker fee),
+                  not the fair-value midpoint — same idea as sportsbook vig, priced from the actual order book.
                 </p>
               )}
 
