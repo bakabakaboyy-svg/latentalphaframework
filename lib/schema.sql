@@ -90,11 +90,12 @@ CREATE TABLE bet_entries (
   book_id INTEGER REFERENCES books(id),
   market_type TEXT NOT NULL,
   outcome_name TEXT NOT NULL,
+  point DECIMAL(6,2), -- spread/total line, e.g. -1.5 or 8.5; null for moneyline
   entry_price DECIMAL(10,4) NOT NULL,
   stake DECIMAL(10,2),
   entry_time TIMESTAMPTZ DEFAULT NOW(),
   closing_price DECIMAL(10,4),
-  clv_percentage DECIMAL(6,4),
+  clv_percentage DECIMAL(6,4), -- set once, at close — see PUT /api/clv
   status TEXT DEFAULT 'open' -- 'open', 'closed', 'graded'
 );
 

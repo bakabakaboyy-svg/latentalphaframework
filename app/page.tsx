@@ -6,6 +6,7 @@ import { NavTabs, type Tab } from "@/components/NavTabs";
 import { LinesTab } from "@/components/LinesTab";
 import { MovementTab } from "@/components/MovementTab";
 import { SteamTab } from "@/components/SteamTab";
+import { CLVTab } from "@/components/CLVTab";
 import { ComingSoon } from "@/components/ComingSoon";
 import type { MarketType, SteamResponse } from "@/types/odds";
 import type { SportFilter } from "@/components/filters";
@@ -112,7 +113,10 @@ function DashboardContent() {
         {tab === "STEAM" && (
           <SteamTab sport={sport} market={market} onSportChange={handleSportChange} onMarketChange={handleMarketChange} />
         )}
-        {tab !== "LINES" && tab !== "MOVEMENT" && tab !== "STEAM" && <ComingSoon tabName={tab} />}
+        {tab === "CLV" && (
+          <CLVTab sport={sport} market={market} onSportChange={handleSportChange} onMarketChange={handleMarketChange} />
+        )}
+        {tab !== "LINES" && tab !== "MOVEMENT" && tab !== "STEAM" && tab !== "CLV" && <ComingSoon tabName={tab} />}
       </main>
     </div>
   );

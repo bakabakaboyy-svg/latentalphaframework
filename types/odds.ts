@@ -166,3 +166,66 @@ export interface SteamResponse {
   mostCommonTriggerBook: string | null;
   error?: string;
 }
+
+export type BetStatus = "open" | "closed" | "graded";
+
+// A logged bet. currentPrice/clvPercentage are live-computed against the
+// latest odds_snapshot while status is "open"; once closed, clvPercentage is
+// the final value stored at close time (see PUT /api/clv) and currentPrice
+// no longer changes.
+export interface BetEntry {
+  id: number;
+  gameId: number;
+  homeTeam: string;
+  awayTeam: string;
+  marketType: MarketType;
+  outcomeName: string;
+  point: number | null;
+  bookSlug: string;
+  bookName: string;
+  entryPrice: number;
+  currentPrice: number | null; // null if no matching odds_snapshot exists yet
+  stake: number | null;
+  entryTime: string;
+  closingPrice: number | null;
+  clvPercentage: number | null;
+  status: BetStatus;
+}
+
+// GET /api/clv response body
+export interface CLVResponse {
+  bets: BetEntry[];
+  error?: string;
+}
+
+// POST /api/clv request body — log a new bet
+export interface LogBetRequest {
+  gameId: number;
+  marketType: MarketType;
+  outcomeName: string;
+  point: number | null;
+  bookSlug: string;
+  entryPrice: number;
+  stake: number | null;
+  entryTime: string | null; // omit/null to default to now()
+}
+
+export interface LogBetResponse {
+  success: boolean;
+  betId?: number;
+  clvPercentage?: number | null;
+  error?: string;
+}
+
+// PUT /api/clv request body — mark a bet closed/graded
+export interface UpdateBetRequest {
+  betId: number;
+  status: "closed" | "graded";
+  closingPrice: number;
+}
+
+export interface UpdateBetResponse {
+  success: boolean;
+  finalClvPercentage?: number;
+  error?: string;
+}

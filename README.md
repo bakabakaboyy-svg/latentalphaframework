@@ -23,9 +23,12 @@ app/                Pages and API routes (App Router)
   api/odds/          GET  — returns latest odds per game/book/market
   api/movement/      GET  — opening lines + full price history + current lines for one game
   api/steam/         GET  — steam_moves in the last N hours, plus summary stats
-components/         Reusable UI components (LinesTab, MovementTab, SteamTab, charts, shared filters)
+  api/clv/           GET/POST/PUT — open bets w/ live CLV, log a bet, close a bet
+components/         Reusable UI components (LinesTab, MovementTab, SteamTab, CLVTab, charts,
+                    shared filters, Toast)
 lib/                Supabase client, scrapers (actionNetwork, polymarket), shared scrape
-                    logic, odds normalization + steam detection (lib/utils/), schema.sql, migrations/
+                    logic, odds normalization + steam detection + CLV math (lib/utils/),
+                    schema.sql, migrations/
 types/              Shared TypeScript types
 public/             PWA manifest, service worker, icons
 ```
@@ -64,7 +67,8 @@ npm install
    new columns to existing tables — run any files in [`lib/migrations/`](lib/migrations)
    you haven't applied yet, in order, in the same SQL Editor:
    [`002_first_recorded_book.sql`](lib/migrations/002_first_recorded_book.sql) (Session 3),
-   [`003_steam_moves_constraints.sql`](lib/migrations/003_steam_moves_constraints.sql) (Session 5).
+   [`003_steam_moves_constraints.sql`](lib/migrations/003_steam_moves_constraints.sql) (Session 5),
+   [`004_bet_entries_point.sql`](lib/migrations/004_bet_entries_point.sql) (Session 6).
 
 ### 3. Environment variables
 
@@ -259,6 +263,56 @@ Note: how *often* new steam gets detected depends entirely on how often `/api/sc
 runs — see "Automatic scraping" under Deployment above. Without a cron calling it
 regularly, steam moves only get recorded when you manually click REFRESH.
 
+## CLV Tab — Tracking Closing Line Value
+
+The CLV tab is where you log your bets and watch their closing line value in real time.
+CLV% tells you whether the price you got was better or worse than where the market moved
+afterward — positive CLV means you beat the closing line, which correlates with
+long-run profitability far more reliably than short-term win/loss record does.
+
+**Formula** (`lib/utils/clv.ts`): `((currentOrClosingPrice - entryPrice) / |entryPrice|) * 100`
+
+```
+entry -110, current -108  ->  +1.82%
+entry +150, current +160  ->  +6.67%
+entry -110, current -115  ->  -4.55%
+```
+
+This is a simplified "cents" comparison, not a full no-vig/implied-probability CLV
+calculation — good enough for tracking whether a line moved your way, but treat large
+swings between very different price ranges (e.g. -110 vs. +400) with some caution, since
+American odds aren't linear.
+
+For **open** bets, CURRENT PRICE and CLV% are computed live on every fetch against the
+latest matching `odds_snapshots` row — nothing is cached, so they only update as often as
+`/api/scrape` runs (see "Automatic scraping" under Deployment). For **closed** bets,
+CLV% is calculated once from your entered closing price and stored permanently.
+
+**Threshold filters** (ALL / 1%+ / 2%+ / 3%+ / 4%+) let you focus on your highest-edge
+bets — e.g. click "2%+" to hide everything that hasn't beaten the closing line by at
+least 2%.
+
+**Best practice:** log bets immediately after placing them. CLV is only meaningful if the
+entry price you record is the price you actually got — logging late (after the line's
+already moved) understates or overstates your real edge.
+
+**Not yet built:** actual win/loss grading. The ACTION button marks a bet "closed" with a
+closing price (for CLV purposes only) — it doesn't record whether the bet won. The CLV
+Statistics card is upfront about this rather than showing a fabricated win rate.
+
+### `GET/POST/PUT /api/clv`
+
+- `GET ?status=open&sport=mlb&market_type=h2h` — open (or closed/graded) bets with
+  live-computed current price/CLV, plus game/book context.
+- `POST` — log a new bet. Body: `{ gameId, marketType, outcomeName, point, bookSlug,
+  entryPrice, stake, entryTime }` (`point`/`stake`/`entryTime` nullable).
+- `PUT` — close a bet. Body: `{ betId, status, closingPrice }` — `clv_percentage` is
+  always computed server-side from `entry_price` + `closingPrice`, never trusted from
+  the client.
+
+See [`types/odds.ts`](types/odds.ts) (`BetEntry`, `CLVResponse`, `LogBetRequest`,
+`UpdateBetRequest`) for exact shapes.
+
 ## Screenshot
 
 _Dashboard screenshot goes here._
@@ -266,6 +320,8 @@ _Dashboard screenshot goes here._
 _MOVEMENT tab screenshot goes here._
 
 _STEAM tab screenshot goes here._
+
+_CLV tab screenshot goes here._
 
 ## Roadmap
 
