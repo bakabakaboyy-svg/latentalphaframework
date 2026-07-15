@@ -134,6 +134,17 @@ export async function scrapePolymarketMLB(): Promise<GameOdds[]> {
     const prices = parseJsonArray(winMarket.outcomePrices).map(Number);
     if (outcomes.length !== prices.length) continue;
 
+    // Polymarket's outcomePrices for a single market are normally
+    // complementary (sum to 1) by construction — flag it if that ever
+    // breaks, since a bad sum would mean we're about to convert a garbage
+    // probability into a garbage odds number.
+    const priceSum = prices.reduce((sum, p) => sum + p, 0);
+    if (Number.isFinite(priceSum) && Math.abs(priceSum - 1) > 0.001) {
+      console.warn(
+        `[polymarket:mlb] ${away.name} @ ${home.name}: outcomePrices sum to ${priceSum.toFixed(4)}, expected ~1.0 — ${JSON.stringify(winMarket.outcomePrices)}`
+      );
+    }
+
     const lines: OddsLine[] = [];
     for (let i = 0; i < outcomes.length; i++) {
       const probability = prices[i];

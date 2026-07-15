@@ -15,10 +15,21 @@ export async function GET(request: NextRequest) {
     const marketType = searchParams.get("market_type");
     const bookSlug = searchParams.get("book");
 
+    // Exclude ended games. `status` alone isn't reliable — Action Network
+    // stops returning a game once it's old without always flipping it to
+    // "final" first, so a commence_time cutoff is the real signal (same
+    // lesson as the ARB tab's stale-arb fix). 6 hours covers any single
+    // game's realistic duration across all supported sports while still
+    // reliably excluding games from days earlier.
+    const STALE_CUTOFF_HOURS = 6;
+    const staleCutoff = new Date(Date.now() - STALE_CUTOFF_HOURS * 60 * 60 * 1000).toISOString();
+
     // Resolve sport filter -> list of game ids
     let gamesQuery = supabase
       .from("games")
       .select("id, external_id, home_team, away_team, commence_time, status, sport_id, sports(slug)")
+      .neq("status", "final")
+      .gte("commence_time", staleCutoff)
       .order("commence_time", { ascending: true });
 
     if (sportSlug) {
