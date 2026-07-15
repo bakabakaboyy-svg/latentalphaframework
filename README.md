@@ -202,10 +202,16 @@ LAF tracks Kalshi and Polymarket for sports events, alongside sportsbooks.
 
 - **Kalshi** odds arrive as part of the regular Action Network scrape — Action Network
   already lists Kalshi as a book on its odds pages and reports its contracts in American
-  odds format directly, so no separate Kalshi integration was needed (a dedicated Kalshi
-  scraper was scoped for this session but turned out to be redundant — see
-  [`lib/scrapers/actionNetwork.ts`](lib/scrapers/actionNetwork.ts) for the up-to-date list
-  of books it recognizes).
+  odds format directly, so no separate Kalshi scraper was needed for game/team matching
+  (see [`lib/scrapers/actionNetwork.ts`](lib/scrapers/actionNetwork.ts) for the up-to-date
+  list of books it recognizes). That reported price is Kalshi's raw ask-implied
+  probability with **Kalshi's own taker fee not applied** — confirmed by reconstructing
+  the implied probability from Action Network's number and comparing against Kalshi's
+  real fee schedule (`fee = round_up(0.07 × C × P × (1-P))`, from their CFTC-filed fee
+  schedule): applying it lands exactly on Kalshi's own displayed price. `applyKalshiFee()`
+  in `lib/scrapers/actionNetwork.ts` reconstructs the implied ask probability from Action
+  Network's reported odds and adds this fee back in before storing the price — same
+  "real executable cost, not the theoretical one" principle as the Polymarket fix below.
 - **Polymarket** is scraped directly ([`lib/scrapers/polymarket.ts`](lib/scrapers/polymarket.ts))
   via their public `gamma-api.polymarket.com` API — no auth required. Currently **MLB
   only**: Polymarket has genuine daily per-game "win" markets for MLB, but only

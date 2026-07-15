@@ -1,4 +1,6 @@
 import type { GameOdds, OddsLine, BookSlug, MarketType, SportSlug } from "@/types/odds";
+import { americanToImpliedProb } from "@/lib/utils/noVigCalculator";
+import { convertProbabilityToAmericanOdds } from "@/lib/utils/normalizeOdds";
 
 // Action Network is a Next.js site — instead of parsing rendered HTML, we pull
 // the JSON it embeds in a <script id="__NEXT_DATA__"> tag on every page. This
@@ -38,6 +40,28 @@ const BOOK_NAME_TO_SLUG: Record<string, BookSlug> = {
   circa: "circa",
   kalshi: "kalshi",
 };
+
+// Kalshi's real per-contract taker fee (fee = round_up(0.07 × C × P × (1-P)),
+// confirmed against their official CFTC-filed fee schedule) is charged
+// whenever an order matches immediately against the book — exactly what
+// "buy this side right now" means. Action Network reports Kalshi's raw
+// ask-implied price with this fee NOT applied (unlike FanDuel/DraftKings/
+// BetMGM, whose reported odds are the sportsbook's own real, already-vigged
+// quote), so it understates the true cost to actually place the trade. We
+// reconstruct the implied ask probability from Action Network's reported
+// American odds and add Kalshi's fee back in ourselves — confirmed against
+// a live discrepancy report: Action Network showed +127, Kalshi's own site
+// showed +118 for the same contract, and this transform reproduces +118
+// exactly. Continuous (unrounded) rate, same modeling choice as the
+// Polymarket scraper's fee handling, since the coarse per-contract rounding
+// only matters at trade sizes of a few contracts.
+const KALSHI_TAKER_FEE_RATE = 0.07;
+
+function applyKalshiFee(americanOdds: number): number {
+  const askProbability = americanToImpliedProb(americanOdds);
+  const allInProbability = askProbability + KALSHI_TAKER_FEE_RATE * askProbability * (1 - askProbability);
+  return convertProbabilityToAmericanOdds(allInProbability);
+}
 
 interface ActionNetworkTeam {
   id: number;
@@ -249,7 +273,8 @@ export async function scrapeActionNetworkSport(sportSlug: SportSlug): Promise<Ga
           game.home_team_id
         );
         for (const line of outcomeLines) {
-          lines.push({ ...line, bookSlug });
+          const price = bookSlug === "kalshi" ? applyKalshiFee(line.price) : line.price;
+          lines.push({ ...line, bookSlug, price });
         }
       }
     }
