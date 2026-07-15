@@ -8,16 +8,18 @@ const TIMEZONE_IANA: Record<Timezone, string> = {
   PST: "America/Los_Angeles",
 };
 
-// Fixed column order/set — Pinnacle and Circa are shown even before we have a
-// scraper that populates them, so the sharp-book columns are already in
-// place for Phase 2 opening-line tracking.
+// Fixed column order/set. Pinnacle and Circa aren't here — Action Network
+// doesn't have live data for either (region-gated), so as of Session 4
+// they're replaced with the two prediction markets, which do have real data.
 const BOOK_COLUMNS = [
-  { slug: "pinnacle", name: "Pinnacle", isSharp: true },
-  { slug: "circa", name: "Circa", isSharp: true },
-  { slug: "fanduel", name: "FanDuel", isSharp: false },
-  { slug: "draftkings", name: "DraftKings", isSharp: false },
-  { slug: "betmgm", name: "BetMGM", isSharp: false },
+  { slug: "fanduel", name: "FanDuel", isSharp: false, isPredictionMarket: false },
+  { slug: "draftkings", name: "DraftKings", isSharp: false, isPredictionMarket: false },
+  { slug: "betmgm", name: "BetMGM", isSharp: false, isPredictionMarket: false },
+  { slug: "kalshi", name: "Kalshi", isSharp: false, isPredictionMarket: true },
+  { slug: "polymarket", name: "Polymarket", isSharp: false, isPredictionMarket: true },
 ] as const;
+
+const PREDICTION_MARKET_COLOR = "#8b5cf6";
 
 function formatGameTime(iso: string, timezone: Timezone): string {
   const formatted = new Date(iso).toLocaleString("en-US", {
@@ -77,9 +79,20 @@ function GameCard({ game, timezone }: { game: GameWithOdds; timezone: Timezone }
               {BOOK_COLUMNS.map((book) => (
                 <th
                   key={book.slug}
-                  title={book.isSharp ? `${book.name} is a sharp book — watch for line movement` : undefined}
+                  title={
+                    book.isPredictionMarket
+                      ? `${book.name} is a prediction market — price shown is a probability converted to American odds`
+                      : book.isSharp
+                        ? `${book.name} is a sharp book — watch for line movement`
+                        : undefined
+                  }
+                  style={book.isPredictionMarket ? { color: PREDICTION_MARKET_COLOR, borderLeftColor: PREDICTION_MARKET_COLOR } : undefined}
                   className={`px-4 py-2 font-mono uppercase text-[11px] font-normal whitespace-nowrap ${
-                    book.isSharp ? "text-accent border-l-2 border-accent cursor-help" : "text-muted"
+                    book.isPredictionMarket
+                      ? "border-l-2 cursor-help"
+                      : book.isSharp
+                        ? "text-accent border-l-2 border-accent cursor-help"
+                        : "text-muted"
                   }`}
                 >
                   {book.name}
@@ -101,12 +114,13 @@ function GameCard({ game, timezone }: { game: GameWithOdds; timezone: Timezone }
                   return (
                     <td
                       key={book.slug}
+                      style={book.isPredictionMarket ? { borderLeftColor: `${PREDICTION_MARKET_COLOR}4d` } : undefined}
                       className={`px-4 py-2 font-mono whitespace-nowrap ${
-                        book.isSharp ? "border-l-2 border-accent/30" : ""
+                        book.isPredictionMarket ? "border-l-2" : book.isSharp ? "border-l-2 border-accent/30" : ""
                       }`}
                     >
                       {line ? (
-                        <span className={line.price > 0 ? "text-accent" : "text-foreground"}>
+                        <span className={book.isPredictionMarket ? "" : line.price > 0 ? "text-accent" : "text-foreground"} style={book.isPredictionMarket ? { color: PREDICTION_MARKET_COLOR } : undefined}>
                           {formatPrice(line.price)}
                           {line.point !== null && (
                             <span className="text-muted"> ({line.point > 0 ? `+${line.point}` : line.point})</span>
