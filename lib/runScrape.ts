@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 import { scrapeActionNetworkSport, SUPPORTED_SPORTS } from "@/lib/scrapers/actionNetwork";
 import { scrapePolymarketMLB } from "@/lib/scrapers/polymarket";
+import { detectSteamMoves } from "@/lib/utils/steamDetection";
 import type { GameOdds, ScrapeResult } from "@/types/odds";
 
 const GAME_MATCH_TOLERANCE_MS = 30 * 60 * 1000; // 30 minutes
@@ -47,6 +48,7 @@ export async function runScrape(): Promise<ScrapeResult> {
     gamesUpserted: 0,
     snapshotsInserted: 0,
     openingLinesSet: 0,
+    steamMovesDetected: 0,
     sources: [],
     errors: [],
     scrapedAt: new Date().toISOString(),
@@ -311,10 +313,34 @@ export async function runScrape(): Promise<ScrapeResult> {
     if (snapshotError) throw new Error(`Failed to insert odds_snapshots: ${snapshotError.message}`);
 
     result.snapshotsInserted = insertedSnapshots?.length ?? 0;
+
+    // 5. Steam detection — compares the snapshot we just inserted against
+    // each book's previous one. Isolated in its own try/catch so a detection
+    // hiccup doesn't fail a scrape that otherwise succeeded.
+    try {
+      const touchedGameIds = Array.from(rowsByGameId.keys());
+      const steamMoves = await detectSteamMoves(supabase, touchedGameIds, result.scrapedAt);
+      if (steamMoves.length > 0) {
+        const { data: insertedSteam, error: steamError } = await supabase
+          .from("steam_moves")
+          .upsert(steamMoves, {
+            onConflict: "game_id,market_type,outcome_name,detected_at",
+            ignoreDuplicates: true,
+          })
+          .select("id");
+        if (steamError) throw new Error(`Failed to insert steam_moves: ${steamError.message}`);
+        result.steamMovesDetected = insertedSteam?.length ?? 0;
+      }
+      console.log(`[scrape] Steam detection: ${result.steamMovesDetected} steam move(s) detected in this scrape.`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result.errors.push(`[steam] ${message}`);
+    }
+
     result.success = true;
 
     console.log(
-      `[scrape] Done. games=${result.gamesUpserted} snapshots=${result.snapshotsInserted} newOpeningLines=${result.openingLinesSet}`
+      `[scrape] Done. games=${result.gamesUpserted} snapshots=${result.snapshotsInserted} newOpeningLines=${result.openingLinesSet} steamMoves=${result.steamMovesDetected}`
     );
     return result;
   } catch (err) {

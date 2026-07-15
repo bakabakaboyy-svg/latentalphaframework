@@ -1,13 +1,69 @@
 "use client";
 
-import { Suspense, useCallback, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { NavTabs, type Tab } from "@/components/NavTabs";
 import { LinesTab } from "@/components/LinesTab";
 import { MovementTab } from "@/components/MovementTab";
+import { SteamTab } from "@/components/SteamTab";
 import { ComingSoon } from "@/components/ComingSoon";
-import type { MarketType } from "@/types/odds";
+import type { MarketType, SteamResponse } from "@/types/odds";
 import type { SportFilter } from "@/components/filters";
+
+const STEAM_INDICATOR_POLL_MS = 60_000;
+
+// Polls /api/steam (unfiltered — any sport) once a minute for whether any
+// steam moved in the last 30 minutes, so the nav's 🔥 badge reflects overall
+// market activity regardless of which sport/tab is currently open. Pauses
+// while the tab is hidden, same pattern as SteamTab's own auto-refresh.
+function useSteamIndicator(): boolean {
+  const [active, setActive] = useState(false);
+
+  useEffect(() => {
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    async function check() {
+      try {
+        const res = await fetch("/api/steam?hours=0.5");
+        const json: SteamResponse = await res.json();
+        setActive((json.totalSteamMoves ?? 0) > 0);
+      } catch (err) {
+        console.error(`[SteamIndicator ${new Date().toISOString()}] check failed:`, err);
+      }
+    }
+
+    function start() {
+      if (intervalId) return;
+      intervalId = setInterval(check, STEAM_INDICATOR_POLL_MS);
+    }
+    function stop() {
+      if (intervalId) {
+        clearInterval(intervalId);
+        intervalId = null;
+      }
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        check();
+        start();
+      } else {
+        stop();
+      }
+    }
+
+    const timeoutId = setTimeout(check, 0);
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      clearTimeout(timeoutId);
+      stop();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
+  return active;
+}
 
 // Sport/market filters live in the URL (?sport=mlb&market=h2h) rather than
 // component state, so switching tabs — or reloading the page — keeps the
@@ -16,6 +72,7 @@ function DashboardContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [tab, setTab] = useState<Tab>("LINES");
+  const steamActive = useSteamIndicator();
 
   const sport = (searchParams.get("sport") as SportFilter | null) ?? "all";
   const market = (searchParams.get("market") as MarketType | null) ?? "h2h";
@@ -42,7 +99,7 @@ function DashboardContent() {
       </header>
 
       <div className="px-6 pt-2">
-        <NavTabs active={tab} onChange={setTab} />
+        <NavTabs active={tab} onChange={setTab} steamActive={steamActive} />
       </div>
 
       <main className="flex-1 px-6 py-6">
@@ -52,7 +109,10 @@ function DashboardContent() {
         {tab === "MOVEMENT" && (
           <MovementTab sport={sport} market={market} onSportChange={handleSportChange} onMarketChange={handleMarketChange} />
         )}
-        {tab !== "LINES" && tab !== "MOVEMENT" && <ComingSoon tabName={tab} />}
+        {tab === "STEAM" && (
+          <SteamTab sport={sport} market={market} onSportChange={handleSportChange} onMarketChange={handleMarketChange} />
+        )}
+        {tab !== "LINES" && tab !== "MOVEMENT" && tab !== "STEAM" && <ComingSoon tabName={tab} />}
       </main>
     </div>
   );

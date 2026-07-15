@@ -22,9 +22,10 @@ app/                Pages and API routes (App Router)
   api/scrape/manual/ POST — same scrape, no secret needed (dashboard Refresh button, local curl)
   api/odds/          GET  — returns latest odds per game/book/market
   api/movement/      GET  — opening lines + full price history + current lines for one game
-components/         Reusable UI components (LinesTab, MovementTab, charts, shared filters)
+  api/steam/         GET  — steam_moves in the last N hours, plus summary stats
+components/         Reusable UI components (LinesTab, MovementTab, SteamTab, charts, shared filters)
 lib/                Supabase client, scrapers (actionNetwork, polymarket), shared scrape
-                    logic, odds normalization (lib/utils/normalizeOdds.ts), schema.sql, migrations/
+                    logic, odds normalization + steam detection (lib/utils/), schema.sql, migrations/
 types/              Shared TypeScript types
 public/             PWA manifest, service worker, icons
 ```
@@ -61,8 +62,9 @@ npm install
    `bet_entries`, `books`, `sports`) and seeds the initial books/sports rows.
 3. **If you already ran the schema in an earlier session**, `schema.sql` alone won't add
    new columns to existing tables — run any files in [`lib/migrations/`](lib/migrations)
-   you haven't applied yet, in order, in the same SQL Editor. As of Session 3 that's just
-   [`002_first_recorded_book.sql`](lib/migrations/002_first_recorded_book.sql).
+   you haven't applied yet, in order, in the same SQL Editor:
+   [`002_first_recorded_book.sql`](lib/migrations/002_first_recorded_book.sql) (Session 3),
+   [`003_steam_moves_constraints.sql`](lib/migrations/003_steam_moves_constraints.sql) (Session 5).
 
 ### 3. Environment variables
 
@@ -121,8 +123,17 @@ You should see `[actionNetwork]` and `[scrape]` console logs in the terminal run
 
 - **Vercel**: connect this GitHub repo, add the same environment variables in
   Project Settings → Environment Variables, deploy.
-- **Railway**: cron job that calls `POST https://<your-vercel-domain>/api/scrape`
-  with header `x-cron-secret: <CRON_SECRET>` every minute — set up in a later session.
+- **Automatic scraping** (so steam detection and line movement keep updating without you
+  clicking REFRESH): something needs to call `POST /api/scrape` with header
+  `x-cron-secret: <CRON_SECRET>` on a schedule. This needs an account/dashboard on your
+  end to set up — a few options, roughly cheapest-to-easiest:
+  - **Railway** cron job hitting `POST https://<your-vercel-domain>/api/scrape` every minute.
+  - **cron-job.org** (free) — same idea, no infra to manage.
+  - **Vercel Cron** (`vercel.json`) — built-in, but the Hobby (free) plan only allows
+    once-per-day schedules; per-minute scraping needs a paid plan.
+  - **GitHub Actions** on a `schedule` trigger, calling the endpoint with `curl`.
+  Whichever you pick, the endpoint itself (`/api/scrape`) is already built and working —
+  this is just wiring something up to call it regularly.
 
 ## Troubleshooting
 
@@ -204,11 +215,57 @@ LAF tracks Kalshi and Polymarket for sports events, alongside sportsbooks.
   prediction markets alike — land on one row instead of splitting into duplicate games.
 - Docs: [Kalshi API docs](https://docs.kalshi.com/) · [Polymarket](https://polymarket.com/)
 
+## STEAM Tab — Sharp Action Detection
+
+Steam moves happen when sharp bettors place large enough wagers that books adjust their
+lines quickly to rebalance — and other books, watching each other, often follow within
+minutes. Several books moving the same direction in a short window is read as a signal
+that real money (not just public betting volume) is behind the move. "Steam chasing" —
+following a detected move quickly — is a popular approach among sharp bettors, though
+how well it works depends heavily on execution speed and position sizing; it isn't a
+guaranteed edge.
+
+**Detection algorithm** ([`lib/utils/steamDetection.ts`](lib/utils/steamDetection.ts)):
+for every (game, market, outcome), compare each book's two most recent
+`odds_snapshots`. If 3 or more books moved in the *same* direction within 5 minutes of
+each other, it's flagged as steam. The book treated as the "trigger" prefers a sharp book
+among the movers, else whichever book moved the most — this is a display choice, not a
+detected "who moved first" signal, for the same reason noted in the MOVEMENT tab section
+above: our sources give us periodic snapshots, not a real-time feed, so if several books'
+prices changed within the same scrape we can't know their true order.
+
+Runs automatically as part of every scrape (`lib/runScrape.ts`) and writes to the
+`steam_moves` table (present since the Session 1 schema, unused until now).
+
+### `GET /api/steam`
+
+Query params: `sport`, `market_type`, `hours` (default 24) — all optional.
+
+Returns `steamMoves` (newest first) plus `totalSteamMoves`, `mostActiveGame`, and
+`mostCommonTriggerBook` for the requested window. See [`types/odds.ts`](types/odds.ts)
+(`SteamResponse`) for the exact shape.
+
+### STEAM tab UI
+
+- **LIVE MODE** (default) — cards for steam moves detected in the last 60 minutes.
+- **HISTORY MODE** — condensed list covering the last 24 hours.
+- **Steam Move Frequency** chart — hourly bar chart of detection counts over the last 24h.
+- Auto-refreshes every minute while the tab/browser window is visible (pauses when
+  backgrounded, via the Page Visibility API, and refetches immediately on return).
+- The nav bar's 🔥 icon turns red when any steam has been detected in the last 30 minutes,
+  independent of which tab or sport filter is currently open.
+
+Note: how *often* new steam gets detected depends entirely on how often `/api/scrape`
+runs — see "Automatic scraping" under Deployment above. Without a cron calling it
+regularly, steam moves only get recorded when you manually click REFRESH.
+
 ## Screenshot
 
 _Dashboard screenshot goes here._
 
 _MOVEMENT tab screenshot goes here._
+
+_STEAM tab screenshot goes here._
 
 ## Roadmap
 

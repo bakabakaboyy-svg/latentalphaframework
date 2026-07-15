@@ -46,6 +46,7 @@ export interface ScrapeResult {
   gamesUpserted: number;
   snapshotsInserted: number;
   openingLinesSet: number;
+  steamMovesDetected: number;
   sources: string[]; // scrapers that ran this pass, e.g. ["action-network", "polymarket"]
   errors: string[];
   scrapedAt: string;
@@ -132,5 +133,36 @@ export interface MovementResponse {
   currentLines: MovementLineEntry[];
   priceHistory: MovementSeries[];
   referenceOpens: MovementReferenceOpen[];
+  error?: string;
+}
+
+export type SteamDirection = "up" | "down";
+
+// A detected steam move — 3+ books' prices moving the same direction within
+// a short window. See lib/utils/steamDetection.ts for the algorithm and its
+// caveats (notably: "trigger book" is a best-guess, not a genuine
+// first-mover detection, for the same reason first_recorded_book is).
+export interface SteamMove {
+  id: number;
+  gameId: number;
+  homeTeam: string;
+  awayTeam: string;
+  sportSlug: string;
+  marketType: MarketType;
+  outcomeName: string;
+  direction: SteamDirection;
+  triggerBook: string;
+  priceBefore: number;
+  priceAfter: number;
+  booksMoved: number; // books other than triggerBook that followed it
+  detectedAt: string;
+}
+
+// GET /api/steam response body
+export interface SteamResponse {
+  steamMoves: SteamMove[];
+  totalSteamMoves: number;
+  mostActiveGame: string | null;
+  mostCommonTriggerBook: string | null;
   error?: string;
 }

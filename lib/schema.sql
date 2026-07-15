@@ -66,7 +66,9 @@ CREATE TABLE opening_lines (
   UNIQUE(game_id, book_id, market_type, outcome_name)
 );
 
--- Steam moves detected
+-- Steam moves detected — 3+ books moving the same direction within a short
+-- window, a signal of sharp money. books_moved counts books OTHER than
+-- trigger_book that followed it.
 CREATE TABLE steam_moves (
   id SERIAL PRIMARY KEY,
   game_id INTEGER REFERENCES games(id),
@@ -77,7 +79,8 @@ CREATE TABLE steam_moves (
   price_before DECIMAL(10,4),
   price_after DECIMAL(10,4),
   books_moved INTEGER DEFAULT 1,
-  detected_at TIMESTAMPTZ DEFAULT NOW()
+  detected_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(game_id, market_type, outcome_name, detected_at)
 );
 
 -- Manual bet entries for CLV tracking
@@ -122,4 +125,5 @@ CREATE INDEX idx_odds_snapshots_game_id ON odds_snapshots(game_id);
 CREATE INDEX idx_odds_snapshots_recorded_at ON odds_snapshots(recorded_at);
 CREATE INDEX idx_odds_snapshots_book_id ON odds_snapshots(book_id);
 CREATE INDEX idx_steam_moves_detected_at ON steam_moves(detected_at);
+CREATE INDEX idx_steam_moves_game_id ON steam_moves(game_id);
 CREATE INDEX idx_bet_entries_status ON bet_entries(status);
