@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runScrape } from "@/lib/runScrape";
 
-// POST /api/scrape — protected endpoint for the Railway cron job (runs every
-// minute once that's set up). For manual/dev testing without the secret, use
-// POST /api/scrape/manual instead.
+// POST /api/scrape — protected endpoint called every 5 minutes by the GitHub
+// Actions workflow at .github/workflows/scrape-cron.yml (originally planned
+// as a Railway cron job, which was never actually deployed — production went
+// ~7 hours without a fresh scrape before this was wired up). For manual/dev
+// testing without the secret, use POST /api/scrape/manual instead.
 //
 // Test manually with:
 //   curl -X POST http://localhost:3000/api/scrape -H "x-cron-secret: <your CRON_SECRET>"

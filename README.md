@@ -10,7 +10,8 @@ surfaces arbitrage opportunities across sportsbooks and prediction markets.
 - **Supabase** (Postgres) — database
 - **Recharts** — MOVEMENT tab charts (opening line comparison, price history)
 - Prediction markets: Kalshi (via Action Network), Polymarket (direct, MLB only — see below)
-- **Railway** — cron job that hits `/api/scrape` every minute
+- **GitHub Actions** — scheduled workflow that hits `/api/scrape` every 5 minutes (see
+  [`.github/workflows/scrape-cron.yml`](.github/workflows/scrape-cron.yml))
 - **Vercel** — hosting, auto-deploys on push to `main`
 - PWA-enabled (installable, offline app-shell fallback)
 
@@ -109,7 +110,8 @@ You can also trigger it directly from a terminal:
 curl -X POST http://localhost:3000/api/scrape/manual
 ```
 
-Or exercise the cron-secret-protected route the same way Railway eventually will:
+Or exercise the cron-secret-protected route the same way the scheduled GitHub Actions
+workflow does in production:
 
 ```bash
 curl -X POST http://localhost:3000/api/scrape -H "x-cron-secret: <your CRON_SECRET>"
@@ -130,16 +132,18 @@ You should see `[actionNetwork]` and `[scrape]` console logs in the terminal run
 - **Vercel**: connect this GitHub repo, add the same environment variables in
   Project Settings → Environment Variables, deploy.
 - **Automatic scraping** (so steam detection and line movement keep updating without you
-  clicking REFRESH): something needs to call `POST /api/scrape` with header
-  `x-cron-secret: <CRON_SECRET>` on a schedule. This needs an account/dashboard on your
-  end to set up — a few options, roughly cheapest-to-easiest:
-  - **Railway** cron job hitting `POST https://<your-vercel-domain>/api/scrape` every minute.
-  - **cron-job.org** (free) — same idea, no infra to manage.
-  - **Vercel Cron** (`vercel.json`) — built-in, but the Hobby (free) plan only allows
-    once-per-day schedules; per-minute scraping needs a paid plan.
-  - **GitHub Actions** on a `schedule` trigger, calling the endpoint with `curl`.
-  Whichever you pick, the endpoint itself (`/api/scrape`) is already built and working —
-  this is just wiring something up to call it regularly.
+  clicking REFRESH): [`.github/workflows/scrape-cron.yml`](.github/workflows/scrape-cron.yml)
+  calls `POST /api/scrape` with header `x-cron-secret: <CRON_SECRET>` every 5 minutes —
+  GitHub Actions' practical floor for scheduled workflows (it doesn't reliably honor
+  shorter intervals). This replaced an originally-planned Railway cron job that was never
+  actually deployed; production went hours at a time without a fresh scrape before this
+  was wired up.
+  - Requires a `CRON_SECRET` **repository secret** (Settings → Secrets and variables →
+    Actions → New repository secret) matching whatever `CRON_SECRET` is set to in Vercel's
+    Environment Variables — these are two separate places the same value has to live.
+  - For true 1-minute cadence instead of 5, either upgrade to **Vercel Pro** ($20/mo, then
+    use a `vercel.json` Cron Job instead of this workflow) or point a free service like
+    **cron-job.org** at the same endpoint (GitHub Actions can't reliably go below 5 min).
 
 ## Troubleshooting
 

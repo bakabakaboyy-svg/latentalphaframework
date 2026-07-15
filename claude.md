@@ -13,7 +13,8 @@
 - Dashboard with LINES tab showing live odds across books
 - Schema for games, odds snapshots, opening lines, steam moves, bet entries
 - PWA-enabled frontend deployed to Vercel
-- Cron scraper on Railway running every 1 minute
+- Cron scraper via GitHub Actions running every 5 minutes (Railway was originally planned
+  here but never actually deployed; see `.github/workflows/scrape-cron.yml`)
 
 **Phase 2 (Sessions 3-4):** Line movement intelligence
 - MOVEMENT tab: opening line tracking (Pinnacle/Circa as baseline), visual price history per book
@@ -48,7 +49,7 @@
 - **Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, React, PWA (service worker + manifest)
 - **Backend:** Next.js API routes, cron jobs
 - **Database:** Supabase (PostgreSQL), free tier sufficient for solo use
-- **Hosting:** Vercel (frontend, free), Railway (backend + cron, ~$5/month)
+- **Hosting:** Vercel (frontend + API routes, free), GitHub Actions (cron scraper, free)
 - **Scraping:** Action Network via fetch (no headless browser needed)
 - **Domain:** latentalphaframework.markets (already purchased)
 - **Deployment:** GitHub → Vercel (auto-deploy on push)
