@@ -128,6 +128,49 @@ export async function runScrape(): Promise<ScrapeResult> {
       return result;
     }
 
+    // Reconcile against already-persisted games before upserting. Two
+    // sources can both eventually cover the same real game under different
+    // external_id schemes — Polymarket's schedule reaches further out than
+    // Action Network's, so a game can get its own "pm-..." row first; once
+    // Action Network's rolling window later catches up to it, the merge step
+    // above pairs it with Polymarket under a *new* "an-mlb-..." id, since
+    // that merge only looks at games scraped in this same pass — it has no
+    // way to know an older DB row for the same game already exists. Without
+    // this, that produces a permanent duplicate: the old row goes stale
+    // forever while a new one silently takes over. Match by team + time
+    // against the DB and adopt the existing row's external_id when found, so
+    // the upsert below updates that row in place instead of creating a
+    // second one.
+    console.log("[scrape] Reconciling against existing games...");
+    const { data: existingGames, error: existingGamesError } = await supabase
+      .from("games")
+      .select("id, external_id, home_team, away_team, commence_time, sports(slug)");
+    if (existingGamesError) throw new Error(`Failed to load existing games: ${existingGamesError.message}`);
+
+    const existingAsGameOdds: GameOdds[] = (existingGames ?? []).map((g) => {
+      const sport = g.sports as unknown as { slug: string } | null;
+      return {
+        externalId: g.external_id,
+        sportSlug: (sport?.slug ?? "") as GameOdds["sportSlug"],
+        homeTeam: g.home_team,
+        awayTeam: g.away_team,
+        commenceTime: g.commence_time,
+        status: "upcoming",
+        lines: [],
+      };
+    });
+
+    for (const game of games) {
+      if (existingAsGameOdds.some((e) => e.externalId === game.externalId)) continue; // already the same row
+      const matched = findMatchingGame(game, existingAsGameOdds);
+      if (matched && matched.externalId !== game.externalId) {
+        console.log(
+          `[scrape] Reconciled ${game.awayTeam} @ ${game.homeTeam}: adopting existing external_id ${matched.externalId} (was ${game.externalId}) to avoid a duplicate row.`
+        );
+        game.externalId = matched.externalId;
+      }
+    }
+
     // 1. Upsert games (matched on external_id, which is stable across scrapes).
     // Deduped by external_id first — a Polymarket game merged onto an
     // existing Action Network game (see findMatchingGame above) now shares
