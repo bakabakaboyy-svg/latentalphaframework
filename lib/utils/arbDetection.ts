@@ -59,6 +59,16 @@ export function detectAllArbs(games: GameWithOdds[], minArbPercentage: number = 
   const opportunities: ArbOpportunity[] = [];
 
   for (const game of games) {
+    // A game is only arb-eligible if it hasn't started yet. `status` alone
+    // isn't reliable — Action Network stops returning a game once it's old
+    // without always flipping it from "upcoming"/"live" to "final" first, so
+    // games days past their commence_time can sit there indefinitely with
+    // stale prices. commence_time is the authoritative signal: once a game's
+    // start time has passed, books stop updating it and any pre-game arb
+    // math no longer reflects a real, currently-bettable opportunity.
+    if (game.status === "final") continue;
+    if (new Date(game.commenceTime).getTime() <= Date.now()) continue;
+
     for (const marketType of marketTypes) {
       const groups = groupLines(game, marketType);
 
