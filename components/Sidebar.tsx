@@ -6,6 +6,7 @@ const TABS = [
   { key: "STEAM", label: "STEAM", icon: "🔥" },
   { key: "CLV", label: "CLV", icon: "💰" },
   { key: "ARB", label: "ARB", icon: "⚡" },
+  { key: "QUANT", label: "QUANT", icon: "🧮" },
 ] as const;
 
 export type Tab = (typeof TABS)[number]["key"];

@@ -71,7 +71,10 @@ npm install
    you haven't applied yet, in order, in the same SQL Editor:
    [`002_first_recorded_book.sql`](lib/migrations/002_first_recorded_book.sql) (Session 3),
    [`003_steam_moves_constraints.sql`](lib/migrations/003_steam_moves_constraints.sql) (Session 5),
-   [`004_bet_entries_point.sql`](lib/migrations/004_bet_entries_point.sql) (Session 6).
+   [`004_bet_entries_point.sql`](lib/migrations/004_bet_entries_point.sql) (Session 6),
+   [`005_arbitrage_opportunities.sql`](lib/migrations/005_arbitrage_opportunities.sql) (Session 7),
+   [`006_quant_engine.sql`](lib/migrations/006_quant_engine.sql) (Session 8 — creates the `qe_*`
+   tables read by the QUANT tab; written to by the separate `quant_engine` Python repo, not by LAF).
 
 ### 3. Environment variables
 
