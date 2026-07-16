@@ -30,6 +30,19 @@ function formatRelativeTime(iso: string): string {
   return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
 }
 
+// Exact wall-clock time, for the title attribute on "Detected X ago" text —
+// relative time is fine for scanning, but hovering should give the precise
+// moment for anyone actually cross-referencing against a bet slip.
+function formatExactTime(iso: string): string {
+  return new Date(iso).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
 interface GameGroup {
   gameId: number;
   homeTeam: string;
@@ -96,8 +109,17 @@ function SteamCard({
           <span className="text-muted whitespace-nowrap">
             {MARKET_LABELS[move.marketType]} · {move.outcomeName} · {move.triggerBook}
           </span>
+          <span className="font-mono whitespace-nowrap">
+            {formatPrice(move.priceBefore)} →{" "}
+            <span className={arrowColor}>
+              {formatPrice(move.priceAfter)} ({priceDiff > 0 ? "+" : ""}
+              {priceDiff})
+            </span>
+          </span>
         </div>
-        <span className="text-muted font-mono whitespace-nowrap">{formatRelativeTime(move.detectedAt)}</span>
+        <span className="text-muted font-mono whitespace-nowrap" title={formatExactTime(move.detectedAt)}>
+          {formatRelativeTime(move.detectedAt)}
+        </span>
       </div>
     );
   }
@@ -125,7 +147,9 @@ function SteamCard({
         </span>
         )
       </div>
-      <div className="text-xs text-muted">Detected {formatRelativeTime(move.detectedAt)}</div>
+      <div className="text-xs text-muted" title={formatExactTime(move.detectedAt)}>
+        Detected {formatRelativeTime(move.detectedAt)}
+      </div>
     </div>
   );
 }
