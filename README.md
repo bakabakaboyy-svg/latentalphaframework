@@ -74,7 +74,9 @@ npm install
    [`004_bet_entries_point.sql`](lib/migrations/004_bet_entries_point.sql) (Session 6),
    [`005_arbitrage_opportunities.sql`](lib/migrations/005_arbitrage_opportunities.sql) (Session 7),
    [`006_quant_engine.sql`](lib/migrations/006_quant_engine.sql) (Session 8 — creates the `qe_*`
-   tables read by the QUANT tab; written to by the separate `quant_engine` Python repo, not by LAF).
+   tables read by the QUANT tab; written to by the separate `quant_engine` Python repo, not by LAF),
+   [`007_signals.sql`](lib/migrations/007_signals.sql) (Session 9 — creates `signal_opportunities`/
+   `signal_trades` for the SIGNALS tab, a second +EV engine independent from quant_engine).
 
 ### 3. Environment variables
 
@@ -391,6 +393,94 @@ See [`types/odds.ts`](types/odds.ts) (`ArbOpportunity`, `ArbLeg`, `ArbStats`,
 **LOG AS HEDGE** logs both (or all) legs of an arb straight to the CLV tab as separate
 bet entries, split proportionally across whatever total stake you enter — so a hedge you
 actually place shows up in your CLV history like any other bet.
+
+## SIGNALS Tab — +EV Detection Against a Synthetic Sharp Baseline
+
+SIGNALS is a second, LAF-native +EV detection engine — fully independent from
+`quant_engine` (a separate Python repo, surfaced read-only in the **QUANT** tab).
+Where quant_engine ingests its own real Kalshi/Polymarket data but is blocked
+until a paid Odds API key is added, SIGNALS synthesizes its "sharp" baseline
+from Action Network sportsbook odds LAF is **already scraping** every 5
+minutes, so it can produce (simulated) output immediately, with no extra API
+cost. The two engines run side by side on purpose — see
+[`lib/migrations/007_signals.sql`](lib/migrations/007_signals.sql)'s header
+comment for why they're kept structurally separate.
+
+### SIMULATED vs LIVE mode
+
+Controlled entirely by one environment variable, `PINNACLE_SOURCE` (see
+[`.env.example`](.env.example)):
+
+- **`mock` (default) = SIMULATED.** `MockPinnacleAdapter`
+  ([`lib/adapters/pinnacleAdapter.ts`](lib/adapters/pinnacleAdapter.ts)) derives a
+  synthetic "Pinnacle" line by averaging LAF's own already-scraped FanDuel/
+  DraftKings/BetMGM odds and tightening the aggregate margin ~2 percentage
+  points (a second synthetic "Circa" line does the same, tightened ~1.5
+  points, standing in for Circa the same way quant_engine's own mocked Circa
+  does). **This data is not tradeable** — the SIGNALS tab shows a persistent
+  amber banner saying so, every EXECUTE button is disabled with a tooltip,
+  every Discord embed is stamped `🧪 SIMULATED — NOT FOR EXECUTION`, and
+  `POST /api/signals/execute` hard-rejects with a 403 no matter what you send it.
+- **`odds_api` = LIVE.** Only reachable once you (1) add a real `ODDS_API_KEY`,
+  (2) finish the TODO in `OddsApiPinnacleAdapter`
+  (`lib/adapters/pinnacleAdapter.ts` — the real endpoint structure, sport-key
+  mapping, and query params are already documented in the TODO, verified
+  against The Odds API this session building quant_engine's own ingestion),
+  and (3) set `PINNACLE_SOURCE=odds_api`. Until all three are done,
+  `OddsApiPinnacleAdapter.getOdds()` throws rather than silently returning
+  nothing.
+
+**Known limitation, not silently buried:** because `MockPinnacleAdapter`'s
+baseline is partially derived from the same books (FanDuel/DraftKings/BetMGM)
+that are also evaluated as execution venues, a simulated opportunity's EV can
+be partly comparing a book's price against a baseline that includes that same
+book's own price — a real circularity that shrinks (but, since the baseline
+averages up to three books, doesn't zero out) the apparent edge. This is
+exactly why simulated-mode output is locked from execution rather than merely
+labeled.
+
+### De-vig models
+
+Same 5 models as quant_engine's own `math_utils.py` (Python), ported to
+TypeScript and generalized to N-way outcome arrays — see
+[`lib/signals/devigging.ts`](lib/signals/devigging.ts): multiplicative
+(proportional), additive (equal-margin), power (favorite-longshot bias
+correction via bisection), probit (z-space shift via Acklam's inverse-normal-CDF
+approximation), and Shin's method (2-way reduces to additive; N≥3 uses the
+verified iterative formula from github.com/mberk/shin). `consensusDevig`
+takes the most conservative (min for buying a side, max for the other) value
+across all 5 models per sharp book, then averages across books present —
+exactly the same conservatism logic as quant_engine's own consensus, so an
+edge has to survive scrutiny from every model before it's surfaced.
+
+### Sizing
+
+Quarter-Kelly against a static $10,000 bankroll (`STARTING_BANKROLL`,
+`KELLY_FRACTION` in `.env.example`), no compounding — see
+[`lib/signals/sizing.ts`](lib/signals/sizing.ts). Projected IRR is explicitly
+illustrative (an annualized "what if this edge repeated on a fixed cadence"
+projection), not a forecast.
+
+### `GET /api/signals` / `POST /api/signals/detect`
+
+- `GET /api/signals` — what the tab reads: the most recent detection batch
+  (last ~10 minutes) across WNBA/MLB h2h markets, plus the current
+  `mode` (`SIMULATED`/`LIVE`). No server-side filtering — the tab's own
+  EV-threshold slider (1–15%) and sort control filter client-side.
+- `POST /api/signals/detect` — runs one detection pass and inserts results
+  into `signal_opportunities` (a historical log, same pattern as
+  `arbitrage_opportunities` — not a true upsert, since there's no unique
+  constraint to conflict against). Also called directly, in-process, from
+  `lib/runScrape.ts` on every real 5-minute scrape cycle — not a separate
+  cron.
+- `POST /api/signals/alert` — sends one sample Discord embed on demand, for
+  verifying formatting without waiting for a real detection cycle to clear
+  the alert threshold.
+- `POST /api/signals/execute` — logs a chosen opportunity into `signal_trades`
+  as an open position with the confirmed stake (actual order placement on the
+  venue itself stays manual). Locked to a 403 while SIMULATED, as above.
+
+See [`types/signals.ts`](types/signals.ts) for exact shapes.
 
 ## Screenshot
 

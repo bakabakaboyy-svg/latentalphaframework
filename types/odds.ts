@@ -48,6 +48,7 @@ export interface ScrapeResult {
   openingLinesSet: number;
   steamMovesDetected: number;
   arbitrageOpportunitiesFound: number;
+  signalOpportunitiesFound: number; // SIGNALS — separate engine from quant_engine, see lib/signals/detect.ts
   sources: string[]; // scrapers that ran this pass, e.g. ["action-network", "polymarket"]
   errors: string[];
   scrapedAt: string;

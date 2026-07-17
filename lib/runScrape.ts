@@ -4,6 +4,7 @@ import { scrapePolymarketMLB } from "@/lib/scrapers/polymarket";
 import { detectSteamMoves } from "@/lib/utils/steamDetection";
 import { getLatestGamesWithOdds } from "@/lib/odds";
 import { detectAllArbs } from "@/lib/utils/arbDetection";
+import { runSignalsDetection } from "@/lib/signals/detect";
 import type { GameOdds, ScrapeResult } from "@/types/odds";
 
 const MIN_ARB_PERCENTAGE = 0.5;
@@ -54,6 +55,7 @@ export async function runScrape(): Promise<ScrapeResult> {
     openingLinesSet: 0,
     steamMovesDetected: 0,
     arbitrageOpportunitiesFound: 0,
+    signalOpportunitiesFound: 0,
     sources: [],
     errors: [],
     scrapedAt: new Date().toISOString(),
@@ -442,6 +444,22 @@ export async function runScrape(): Promise<ScrapeResult> {
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       result.errors.push(`[arb] ${message}`);
+    }
+
+    // 7. SIGNALS detection — a second, LAF-native +EV engine, fully
+    // independent from quant_engine (separate Python repo, surfaced in the
+    // QUANT tab). Isolated in its own try/catch, same as steam/arb, so a
+    // detection hiccup here can't fail an otherwise-successful scrape.
+    try {
+      const signalsResult = await runSignalsDetection(supabase);
+      result.signalOpportunitiesFound = signalsResult.opportunitiesFound;
+      console.log(
+        `[scrape] SIGNALS detection: ${signalsResult.opportunitiesFound} opportunity(ies) found ` +
+          `(${signalsResult.simulated ? "SIMULATED" : "LIVE"} mode) in this scrape.`
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result.errors.push(`[signals] ${message}`);
     }
 
     result.success = true;
